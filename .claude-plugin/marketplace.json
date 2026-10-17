@@ -1,0 +1,14 @@
+{
+  "name": "paper-lens-marketplace",
+  "description": "Paper Lens: 논문 읽기를 돕는 Claude Code 플러그인",
+  "owner": {
+    "name": "shoong"
+  },
+  "plugins": [
+    {
+      "name": "paper-lens",
+      "source": "./paper-lens",
+      "description": "논문 PDF를 리더로 열어 번역·요약·그림 해석을 보고 바로 Claude에게 묻는 플러그인"
+    }
+  ]
+}

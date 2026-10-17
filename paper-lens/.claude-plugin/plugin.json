@@ -1,0 +1,7 @@
+{
+  "name": "paper-lens",
+  "version": "0.1.0",
+  "description": "논문 PDF를 Claude 앱 안의 리더로 열어 번역·3줄 요약·그림/표 해석을 보고, 드래그하거나 영역을 캡처해 바로 Claude에게 묻는 플러그인",
+  "author": { "name": "shoong" },
+  "keywords": ["paper", "pdf", "research", "translation", "arxiv"]
+}
