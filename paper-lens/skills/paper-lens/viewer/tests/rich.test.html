@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset="utf-8"><title>rich convert tests</title></head><body>
+<script src="harness.js"></script>
+<script src="../notes-core.js"></script>
+<script src="../rich-convert.js"></script>
+<script>
+const { test, eq, ok } = PLTest;
+const R = () => window.PLRichConvert;
+const rt = (t) => { const back = R().deltaToMd(R().mdToDelta(t)); eq(back, R().normalize(t), "round trip of " + JSON.stringify(t)); ok(R().roundTrips(t), "roundTrips " + JSON.stringify(t)); };
+
+test("heading", () => {
+  eq(R().mdToDelta("## 제목").ops, [{ insert: "제목" }, { insert: "\n", attributes: { header: 2 } }]);
+  rt("## 제목"); rt("# 큰 제목"); rt("### 작은 제목");
+});
+test("inline marks", () => {
+  rt("**굵게** 와 *기울임* ~~취소~~ `코드`");
+  const ops = R().mdToDelta("**굵게**").ops;
+  eq(ops[0], { insert: "굵게", attributes: { bold: true } });
+});
+test("html marks", () => {
+  const t = '<u>밑줄</u> <span data-c="red">빨강</span> <mark data-c="yellow">형광</mark> <span data-s="large">크게</span>';
+  rt(t);
+  const attrs = R().mdToDelta(t).ops.filter((o) => o.attributes).map((o) => o.attributes);
+  eq(attrs.slice(0, 4), [{ underline: true }, { color: "red" }, { highlight: "yellow" }, { size: "large" }]);
+});
+test("nested marks", () => { rt('**굵게 <mark data-c="green">초록</mark>** 끝'); rt("*a **b** c*"); });
+test("lists", () => {
+  rt("- 하나\n  - 둘\n- 셋");
+  rt("1. 가\n2. 나");
+  rt("- [ ] 할 일\n- [x] 끝");
+  const lines = R().mdToDelta("- [x] 끝").ops.filter((o) => o.insert === "\n").map((o) => o.attributes);
+  eq(lines, [{ list: "checked" }]);
+});
+test("quote", () => { rt("> 인용"); });
+test("inline math", () => {
+  rt("넓이 $\\pi r^2$ 이다");
+  ok(R().mdToDelta("넓이 $\\pi r^2$ 이다").ops.some((o) => o.insert && o.insert.mathInline === "\\pi r^2"), "embed");
+});
+test("link", () => {
+  rt("[링크](https://a.b/c)");
+  eq(R().mdToDelta("[링크](https://a.b/c)").ops[0], { insert: "링크", attributes: { link: "https://a.b/c" } });
+});
+test("paragraphs and empty paragraph", () => { rt("첫 문단\n\n둘째 문단"); rt("위\n\n<br>\n\n아래"); rt("문단\n\n- 목록\n\n## 제목\n\n끝"); });
+test("special characters typed as text survive", () => {
+  const plain = "a*b_c $5 <b> \\ ~ [x] & `";
+  const md = R().deltaToMd({ ops: [{ insert: plain + "\n" }] });
+  const back = R().mdToDelta(md).ops.map((o) => o.insert).join("");
+  eq(back, plain + "\n");
+  for (const line of ["# 아님", "1. 아님", "- 아님", "> 아님"]) {
+    const md2 = R().deltaToMd({ ops: [{ insert: line + "\n" }] });
+    eq(R().mdToDelta(md2).ops, [{ insert: line }, { insert: "\n" }], line);
+  }
+});
+test("price dollars stay text", () => { rt("가격 $5–$10"); ok(!R().mdToDelta("가격 $5–$10").ops.some((o) => typeof o.insert === "object"), "no math"); });
+test("unsupported markdown does not round trip", () => {
+  for (const t of ["| a | b |\n|---|---|", "```\nx\n```", "$$x$$", "_x_", "* 별 글머리", "한 줄\n바로 다음 줄", "<div>x</div>", "![](a.png)", "__굵게__"]) ok(!R().roundTrips(t), "should not round trip: " + JSON.stringify(t));
+});
+test("everyday Claude text round trips", () => {
+  rt("RNN [13] 과 Q&A, a < b, snake_case, 1.5배");
+  rt("- **핵심**: 어텐션만 쓴다 (p.2)\n- 병렬화가 쉽다");
+});
+test("normalize", () => { eq(R().normalize("\n\na  \n\n\n\nb\n\n"), "a\n\nb"); });
+test("empty", () => { rt(""); eq(R().deltaToMd({ ops: [{ insert: "\n" }] }), ""); });
+</script></body></html>
