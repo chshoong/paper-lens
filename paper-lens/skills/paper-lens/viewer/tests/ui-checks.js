@@ -191,4 +191,60 @@
     if (DBOFF) ok(st.includes("이 기기에만 저장돼요"), st);
     else ok(!st.includes("이 기기에만"), st);
   });
+
+  // ---------- Task 6: chat bridge and section bar ----------
+  const lastSent = () => window.__fake.sent[window.__fake.sent.length - 1];
+  async function gotoPageAndSettle(p) {
+    const w = document.querySelector('.page[data-p="' + p + '"]');
+    $("#viewer").scrollTop = w.offsetTop + 20;
+    $("#viewer").dispatchEvent(new Event("scroll"));
+    await waitFor(() => $("#pageind").textContent.startsWith(p + " /"), 5000, "page " + p);
+  }
+
+  test("section bar follows the outline and publishes presence", async () => {
+    if (DB_OFF) return;
+    window.__fake.db.write("outline/main", { sections: [{ id: "s1", num: "1", title: "Introduction", page: 1 }, { id: "s3", num: "3", title: "Model Architecture", page: 3 }] });
+    await gotoPageAndSettle(3);
+    await waitFor(() => $("#secbar") && $("#secbar").textContent.includes("Model Architecture"), 5000, "section title");
+    await waitFor(() => window.__fake.presence && window.__fake.presence.page === 3, 5000, "presence page 3");
+  });
+
+  test("explain this section sends to the chat", async () => {
+    if (DB_OFF) return;
+    const n0 = window.__fake.sent.length;
+    btnByText($("#secbar"), "▸ 이 절 설명 듣기").click();
+    await waitFor(() => window.__fake.sent.length === n0 + 1, 3000, "sent");
+    eq(lastSent().opts.deliver, "send");
+    eq(lastSent().data.section.id, "s3");
+    eq(lastSent().data.kind, "explain_section");
+  });
+
+  test("ask Claude stages the selected text", async () => {
+    const n0 = window.__fake.sent.length;
+    await selectOnPage(1, "dominant");
+    btnByText($("#selbar"), "Claude에게 묻기").click();
+    await waitFor(() => window.__fake.sent.length === n0 + 1, 3000, "sent");
+    eq(lastSent().opts.deliver, "stage");
+    ok(String(lastSent().data.selectedText || "").length > 5, "selectedText");
+  });
+
+  test("without a chat session the ask is saved for Claude to pick up", async () => {
+    if (DB_OFF) return;
+    window.__fake.canSend = "no_session";
+    await window.__bridge.refreshCanSend();
+    const n0 = window.__fake.sent.length;
+    btnByText($("#secbar"), "▸ 이 절 설명 듣기").click();
+    await waitFor(() => window.__fake.db.get("state/ask"), 3000, "state/ask written");
+    eq(window.__fake.sent.length, n0, "nothing sent");
+    eq(window.__fake.db.get("state/ask").kind, "explain_section");
+    await waitFor(() => $("#toast").textContent.includes("채팅에"), 3000, "fallback toast");
+    window.__fake.canSend = "available";
+    await window.__bridge.refreshCanSend();
+  });
+
+  test("Claude's section summaries show in the notes tab", async () => {
+    if (DB_OFF) return;
+    window.__fake.db.write("explanations/s3", { summary: "어텐션만으로 인코더-디코더를 만든다", updatedAt: "2026-11-20T00:00:00Z" });
+    await waitFor(() => !$("#explainLog").hidden && $("#explainLog").textContent.includes("어텐션만으로"), 5000, "explain log");
+  });
 })();

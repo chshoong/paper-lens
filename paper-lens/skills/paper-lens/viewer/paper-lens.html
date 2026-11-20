@@ -186,6 +186,17 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .save-state.local { color: var(--danger); }
 #trpop { position: fixed; z-index: 55; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px; width: min(420px, calc(100vw - 24px)); max-height: 50vh; overflow: auto; display: grid; gap: 8px; }
 .trpop-body { font-size: 14px; }
+#secbar { position: sticky; top: 0; z-index: 7; display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 6px 12px; background: color-mix(in srgb, var(--surface) 92%, transparent); border-bottom: 1px solid var(--line); backdrop-filter: blur(6px); }
+#secbar .sec-t { font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#secbar .sec-t.muted { font-weight: 400; color: var(--muted); }
+#secbar .btn { padding: 3px 10px; font-size: 12.5px; flex: none; }
+#explainLog { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; background: var(--bg); }
+#explainLog summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+#explainLog .ex-item { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); text-align: left; background: none; border-left: 0; border-right: 0; border-bottom: 0; width: 100%; }
+#explainLog .ex-item:first-of-type { border-top: 0; }
+#explainLog .ex-item b { font-size: 12.5px; }
+#explainLog .ex-item span { font-size: 13px; color: var(--muted); }
+
 /* Notes editor */
 .notes-ed { display: grid; gap: 2px; }
 .nb-list { display: grid; gap: 2px; }
@@ -198,7 +209,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .nb-body { min-width: 0; padding: 5px 6px; border-radius: 6px; cursor: text; overflow-wrap: anywhere; }
 .nb-body .md { font-size: 15px; }
 .nb-body .md p { margin: .2em 0; }
-.nb-math { overflow-x: auto; padding: 4px 0; text-align: center; font-size: 17px; }
+.nb-math { overflow-x: auto; overflow-y: hidden; padding: 4px 0; text-align: center; font-size: 17px; }
 .nb-preview mjx-container { font-size: 16px; }
 .nb-body mjx-container { color: var(--fg); }
 .nb-body mjx-container[display="true"] { margin: .2em 0 !important; }
@@ -282,7 +293,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 #selbar .thumb img { height: 36px; border-radius: 4px; border: 1px solid var(--line); background: var(--paper); }
 
 #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 13px; z-index: 60; box-shadow: var(--shadow); max-width: calc(100vw - 32px); }
-#capHint { position: sticky; top: 8px; z-index: 6; margin: 0 auto; width: max-content; max-width: calc(100% - 32px); background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 5px 14px; font-size: 12.5px; }
+#capHint { position: sticky; top: 46px; z-index: 6; margin: 0 auto; width: max-content; max-width: calc(100% - 32px); background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 5px 14px; font-size: 12.5px; }
 
 @media (max-width: 860px) {
   .viewswitch { display: inline-flex; }
@@ -328,6 +339,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   <main class="split">
     <section id="viewer" aria-label="PDF 보기">
       <div id="capHint" hidden>그림·표·수식을 드래그로 감싸세요 · <kbd style="color:inherit;border-color:currentColor">Esc</kbd> 취소</div>
+      <div id="secbar" hidden><span class="sec-t" id="secTitle"></span><button class="btn" id="secBtn" type="button">▸ 이 절 설명 듣기</button></div>
       <div class="empty" id="empty">
         <label class="drop" id="drop" for="file">
           <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 2.5H6.5a2 2 0 00-2 2v15a2 2 0 002 2h11a2 2 0 002-2V8L14 2.5z" stroke="currentColor" stroke-width="1.4"/><path d="M14 2.5V8h5.5M12 17v-6M9.5 13.5L12 11l2.5 2.5" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -640,16 +652,18 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   let scrollRaf = 0;
   $("#viewer").addEventListener("scroll", () => {
     if (scrollRaf) return;
-    scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = setTimeout(() => {
       scrollRaf = 0;
       const v = $("#viewer"), mid = v.scrollTop + v.clientHeight * 0.35;
       let cur = 1;
       for (let i = 1; i <= S.n; i++) { if (S.pages[i].wrap.offsetTop <= mid) cur = i; else break; }
       if (cur !== S.cur) { S.cur = cur; onPageChange(); }
-    });
+    }, 60);
     if (!$("#selbar").hidden && Math.abs($("#viewer").scrollTop - selScroll) > 40) hideSelbar();
   }, { passive: true });
   function onPageChange() {
+    window.__bridge?.setPosition(S.cur);
+    renderSecbar();
     $("#pageind").textContent = `${S.cur} / ${S.n}`;
     $("#transBtn").textContent = S.trans[S.cur] ? `${S.cur}쪽 다시 정리` : `${S.cur}쪽 정리`;
     document.querySelectorAll(".tpage").forEach((t) => t.classList.toggle("current", +t.dataset.p === S.cur));
@@ -933,15 +947,21 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 
   // ---------- Selection toolbar ----------
   // [key, label, primary, needsChat]
-  const SEL_ACTIONS = [["translate", "번역", true], ["explain", "설명", false, true], ["easy", "쉽게 풀기", false, true], ["why", "왜 중요해?", false, true], ["quote", "노트에 인용"]];
-  const CAP_ACTIONS = [["latex", "LaTeX로 노트에", true], ["image", "그림을 노트에"], ["figure", "그림·표 해석", false, true]];
+  const SEL_ACTIONS = [["translate", "번역", true], ["explain", "설명", false, true], ["easy", "쉽게 풀기", false, true], ["why", "왜 중요해?", false, true], ["ask", "Claude에게 묻기", false, true], ["quote", "노트에 인용"]];
+  const CAP_ACTIONS = [["latex", "LaTeX로 노트에", true], ["image", "그림을 노트에"], ["figure", "그림·표 해석", false, true], ["ask", "Claude에게 묻기", false, true]];
   let selScroll = 0;
   function showSelbar(x, y, ctx) {
     S.sel = ctx; selScroll = $("#viewer").scrollTop;
     const bar = $("#selbar"), acts = $("#selacts"); acts.textContent = "";
     (ctx.image ? CAP_ACTIONS : SEL_ACTIONS).filter((a) => !a[3] || hasChat()).forEach(([k, label, main]) => {
       if (k === "image" && !assets) return;
-      acts.append(el("button", { type: "button", class: main ? "main" : "", text: label, onclick: () => selAction(k) }));
+      const b = el("button", { type: "button", class: main ? "main" : "", text: label, onclick: () => selAction(k) });
+      // A capture goes to the chat as an uploaded image id: wait for the upload before allowing that.
+      if (ctx.image && (k === "figure" || k === "ask") && !ctx.assetId) {
+        b.disabled = true; b.title = "그림을 올리는 중…";
+        (ctx.assetPromise || Promise.resolve(null)).then((id) => { b.disabled = !id; b.title = id ? "" : "그림을 올리지 못해 채팅으로 보낼 수 없어요"; });
+      }
+      acts.append(b);
     });
     $("#selform").hidden = !hasChat();
     $("#selthumb").hidden = !ctx.image;
@@ -1122,7 +1142,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 
   // ---------- Chat with Claude (the conversation beside this page) ----------
   // Wired by bridge.js; without it the chat actions stay hidden.
-  const hasChat = () => !!(window.__bridge && /^available/.test(window.__bridge.canSend()));
+  const hasChat = () => !!window.__bridge;
   function chatAsk(data, deliver) {
     if (!window.__bridge) { toast("채팅 연결을 준비하는 중이에요. 잠시 뒤 다시 눌러주세요."); return; }
     window.__bridge.send(data, deliver).then((r) => toast(r.via === "chat" ? "채팅창에 보냈어요." : "채팅에 '이거 설명해줘'라고 말하면 돼요."));
@@ -1182,6 +1202,44 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
       const b = $("#notesBadge"); b.hidden = !blocks.length; b.textContent = blocks.length;
     });
     updateSaveState();
+    // Link to the Claude chat beside the page.
+    const room = await claude.use("room").catch(() => null);
+    window.__bridge = room || db ? await PLBridge.init({ room, db, paper: { get title() { return S.title; } } }).catch(() => null) : null;
+    $("#secbar").hidden = !window.__bridge;
+    if (window.__bridge) {
+      window.__bridge.onOutline(() => renderSecbar());
+      window.__bridge.onExplanations(renderExplainLog);
+      window.__bridge.setPosition(S.cur);
+    }
+  }
+  function renderSecbar() {
+    const t = $("#secTitle"), B = window.__bridge;
+    if (!B) return;
+    const sec = B.currentSection();
+    t.classList.toggle("muted", !sec);
+    t.textContent = sec ? "§" + (sec.num ? sec.num + " " : "") + sec.title : B.outline() ? "p." + S.cur : "목차가 아직 없어요. 채팅에 '이 논문 같이 읽자'라고 말하면 Claude가 만들어요";
+    t.title = t.textContent;
+  }
+  $("#secBtn").onclick = () => {
+    const sec = window.__bridge?.currentSection();
+    chatAsk({ kind: sec ? "explain_section" : "explain_page", page: S.cur }, "send");
+  };
+  function renderExplainLog(map) {
+    const box = $("#explainLog"), B = window.__bridge;
+    const secs = (B?.outline()?.sections || []);
+    const ids = Object.keys(map || {});
+    box.hidden = !ids.length;
+    if (!ids.length) return;
+    const order = (id) => { const i = secs.findIndex((x) => x.id === id); return i < 0 ? 1e9 : i; };
+    const wasOpen = box.querySelector("details")?.open;
+    const det = el("details", {}, el("summary", { text: `Claude 설명 기록 (${ids.length}절)` }));
+    if (wasOpen) det.open = true;
+    ids.sort((a, b) => order(a) - order(b)).forEach((id) => {
+      const sec = secs.find((x) => x.id === id);
+      det.append(el("button", { type: "button", class: "ex-item", onclick: () => sec && gotoPage(sec.page) },
+        el("b", { text: sec ? "§" + (sec.num ? sec.num + " " : "") + sec.title : id }), el("span", { text: String(map[id].summary || "") })));
+    });
+    box.textContent = ""; box.append(det);
   }
   function updateSaveState() {
     const st = $("#saveState");
