@@ -46,9 +46,10 @@
       if (usable) {
         let p;
         try { p = room.sendToClaudeSession(payload, { deliver: deliver || "stage" }); } catch (e) { p = Promise.reject(e); }
-        return p.then(() => ({ via: "chat" }), async () => { await saveAsk(payload); refreshCanSend(); return { via: "fallback" }; });
+        return p.then(() => ({ via: "chat" }), async () => { const saved = await saveAsk(payload); refreshCanSend(); return { via: saved ? "fallback" : "none" }; });
       }
-      return saveAsk(payload).then(() => ({ via: "fallback" }));
+      // "fallback": saved for Claude to pick up; "none": nowhere to put it (no chat and no db).
+      return saveAsk(payload).then((saved) => ({ via: saved ? "fallback" : "none" }));
     }
 
     function writeState() {

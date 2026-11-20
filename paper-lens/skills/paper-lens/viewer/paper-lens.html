@@ -952,6 +952,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   let selScroll = 0;
   function showSelbar(x, y, ctx) {
     S.sel = ctx; selScroll = $("#viewer").scrollTop;
+    window.__bridge?.refreshCanSend(); // the chat may have been opened since the page loaded
     const bar = $("#selbar"), acts = $("#selacts"); acts.textContent = "";
     (ctx.image ? CAP_ACTIONS : SEL_ACTIONS).filter((a) => !a[3] || hasChat()).forEach(([k, label, main]) => {
       if (k === "image" && !assets) return;
@@ -1145,7 +1146,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   const hasChat = () => !!window.__bridge;
   function chatAsk(data, deliver) {
     if (!window.__bridge) { toast("채팅 연결을 준비하는 중이에요. 잠시 뒤 다시 눌러주세요."); return; }
-    window.__bridge.send(data, deliver).then((r) => toast(r.via === "chat" ? "채팅창에 보냈어요." : "채팅에 '이거 설명해줘'라고 말하면 돼요."));
+    window.__bridge.send(data, deliver).then((r) => toast(r.via === "chat" ? "채팅창에 보냈어요." : r.via === "fallback" ? "채팅에 '이거 설명해줘'라고 말하면 돼요." : "Claude 채팅창을 열고 다시 눌러주세요."));
   }
 
   // ---------- Glossary ----------
@@ -1195,6 +1196,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
       onAskClaude: (b) => chatAsk({ kind: "note", blockId: b.id, page: b.page ?? S.cur, selectedText: String(b.text || "").slice(0, 2000) }, "stage"),
       assetUrl: (id) => "/_blob/" + id,
     });
+    notesStore.onStatus(updateSaveState);
     notesUnsub = notesStore.subscribe((blocks) => {
       const touched = new Set([...S.blocks, ...blocks].filter((b) => b.rects).map((b) => b.page));
       S.blocks = blocks;
@@ -1215,11 +1217,13 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   function renderSecbar() {
     const t = $("#secTitle"), B = window.__bridge;
     if (!B) return;
+    B.refreshCanSend();
     const sec = B.currentSection();
     t.classList.toggle("muted", !sec);
     t.textContent = sec ? "§" + (sec.num ? sec.num + " " : "") + sec.title : B.outline() ? "p." + S.cur : "목차가 아직 없어요. 채팅에 '이 논문 같이 읽자'라고 말하면 Claude가 만들어요";
     t.title = t.textContent;
   }
+  $("#secbar").addEventListener("pointerenter", () => window.__bridge?.refreshCanSend());
   $("#secBtn").onclick = () => {
     const sec = window.__bridge?.currentSection();
     chatAsk({ kind: sec ? "explain_section" : "explain_page", page: S.cur }, "send");
@@ -1241,12 +1245,18 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     });
     box.textContent = ""; box.append(det);
   }
+  let saveShown = "";
   function updateSaveState() {
     const st = $("#saveState");
-    if (!notesStore) { st.textContent = ""; return; }
-    const local = notesStore.mode === "local";
-    st.classList.toggle("local", local);
-    st.textContent = local ? "이 기기에만 저장돼요" : notesStore.pendingIds().size ? "저장 중…" : "저장됨";
+    if (!notesStore) { st.textContent = ""; saveShown = ""; return; }
+    const local = notesStore.mode === "local", q = notesStore.status();
+    const state = q.failed.size ? "failed" : q.pending.size || q.inflight ? "saving" : local ? "local" : "saved";
+    if (state === saveShown) return;
+    saveShown = state;
+    st.classList.toggle("local", state === "local" || state === "failed");
+    st.textContent = "";
+    if (state === "failed") st.append("저장 실패 · ", el("button", { type: "button", class: "mini", text: "다시 시도", onclick: () => notesStore.retryFailed() }));
+    else st.textContent = state === "saving" ? "저장 중…" : state === "local" ? "이 기기에만 저장돼요" : "저장됨";
   }
   setInterval(updateSaveState, 800);
   function noteInsert(partial, o) {

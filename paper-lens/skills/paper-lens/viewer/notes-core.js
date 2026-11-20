@@ -10,7 +10,8 @@
   }
 
   // Split text into plain text, $inline$ and $$display$$ math.
-  // A single $ opens math only when followed by a non-space and closes only after a non-space.
+  // A single $ opens math only when followed by a non-space and closes only after a non-space and
+  // not right before a digit (so "$5–$10" stays text).
   // \$ is a literal dollar.
   function splitMath(s) {
     s = String(s || "");
@@ -31,7 +32,7 @@
         let j = -1;
         if (next && !/\s/.test(next)) {
           for (let k = i + 1; k < s.length; k++) {
-            if (s[k] === "$" && s[k - 1] !== "\\" && !/\s/.test(s[k - 1]) && s[k + 1] !== "$") { j = k; break; }
+            if (s[k] === "$" && s[k - 1] !== "\\" && !/\s/.test(s[k - 1]) && s[k + 1] !== "$" && !/\d/.test(s[k + 1] || "")) { j = k; break; }
           }
         }
         if (j > i + 1) { flush(); out.push({ kind: "inline", value: s.slice(i + 1, j) }); i = j + 1; continue; }
@@ -105,9 +106,12 @@
     return { latex, eq };
   }
 
-  const FORMAT_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F­​-‏‪-‮⁠-⁤﻿]/g;
+  // Controls, private-use and format characters are refused by sendToClaudeSession; pdf.js text
+  // often carries private-use glyphs from math fonts. Keep tab/newline and the ZWNJ/ZWJ joiners.
+  const REFUSED = /[\p{Cc}\p{Co}\p{Cf}]/gu;
+  const KEEP = new Set(["\t", "\n", "\r", "\u200C", "\u200D"]);
   function clean(v) {
-    if (typeof v === "string") return v.replace(FORMAT_CHARS, "");
+    if (typeof v === "string") return v.replace(REFUSED, (c) => (KEEP.has(c) ? c : ""));
     if (Array.isArray(v)) return v.map(clean);
     if (v && typeof v === "object") { const o = {}; for (const k in v) if (v[k] !== undefined) o[k] = clean(v[k]); return o; }
     return v;

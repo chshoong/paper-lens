@@ -247,4 +247,56 @@
     window.__fake.db.write("explanations/s3", { summary: "어텐션만으로 인코더-디코더를 만든다", updatedAt: "2026-11-20T00:00:00Z" });
     await waitFor(() => !$("#explainLog").hidden && $("#explainLog").textContent.includes("어텐션만으로"), 5000, "explain log");
   });
+
+  // ---------- review fixes ----------
+  test("typing right after Enter goes to the new block even when the db is slow", async () => {
+    if (DB_OFF) return;
+    const E = await mountEditor("db");
+    const id = await E.ui.insert({ type: "text", text: "첫 문장" });
+    const ta = await E.edit(id);
+    window.__fake.dbLatency = 400;
+    key(ta, "Enter", { isComposing: false });
+    await sleep(60);
+    const now = E.ui.editingId();
+    window.__fake.dbLatency = 0;
+    ok(now && now !== id, "editing moved to the new block within 60ms (was " + now + ")");
+    await sleep(450);
+  });
+
+  test("a failed save shows a retry instead of 저장됨", async () => {
+    if (DB_OFF) return;
+    const tab = $('.tab[data-tab="notes"]'); tab.click();
+    const id = await waitFor(() => document.querySelector("#tab-notes .nb") && document.querySelector("#tab-notes .nb").dataset.id, 5000, "a block");
+    window.__fake.failWrites = 2;
+    document.querySelector('#tab-notes .nb[data-id="' + id + '"] .nb-body').click();
+    const ta = await waitFor(() => document.querySelector('#tab-notes .nb[data-id="' + id + '"] textarea'), 3000, "textarea");
+    ta.value = ta.value + " 실패 테스트"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => $("#saveState").textContent.includes("저장 실패"), 8000, "failure shown");
+    window.__fake.failWrites = 0;
+    $("#saveState").querySelector("button").click();
+    await waitFor(() => $("#saveState").textContent.trim() === "저장됨", 8000, "saved after retry");
+  });
+
+  test("opening the chat after the page is noticed before the next click", async () => {
+    if (DB_OFF) return;
+    window.__fake.canSend = "no_session";
+    await window.__bridge.refreshCanSend();
+    window.__fake.canSend = "available";
+    const n0 = window.__fake.sent.length;
+    await selectOnPage(1, "dominant");
+    await sleep(50);
+    btnByText($("#selbar"), "설명").click();
+    await waitFor(() => window.__fake.sent.length === n0 + 1, 3000, "sent to chat, not the fallback");
+  });
+
+  test("without db or chat the ask button says to open the chat", async () => {
+    if (!DB_OFF) return;
+    window.__fake.canSend = "no_session";
+    await window.__bridge.refreshCanSend();
+    await selectOnPage(1, "dominant");
+    await sleep(50);
+    btnByText($("#selbar"), "설명").click();
+    await waitFor(() => $("#toast").textContent.includes("채팅창을 열고"), 3000, "open-chat hint");
+    window.__fake.canSend = "available";
+  });
 })();

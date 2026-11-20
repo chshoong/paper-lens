@@ -26,6 +26,15 @@ test("splitMath escaped dollars", () => {
 test("splitMath spaced dollars are not math", () => {
   eq(C().splitMath("$ x $"), [{ kind: "text", value: "$ x $" }]);
 });
+test("splitMath price ranges stay text", () => {
+  eq(C().splitMath("$5–$10"), [{ kind: "text", value: "$5–$10" }]);
+  eq(C().splitMath("$5/$10 per item"), [{ kind: "text", value: "$5/$10 per item" }]);
+  eq(C().splitMath("x is $a$ and $b$"), [{ kind: "text", value: "x is " }, { kind: "inline", value: "a" }, { kind: "text", value: " and " }, { kind: "inline", value: "b" }]);
+});
+test("toClaudePayload strips private-use and format characters but keeps joiners", () => {
+  const p = C().toClaudePayload({ t: "a\uE000b\u2066c\u061Cd\u200De\uFE0F" });
+  eq(p.t, "abcd\u200De\uFE0F");
+});
 test("blocksToMarkdown orders and formats", () => {
   const md = C().blocksToMarkdown([
     { type: "image", page: 4, order: 4 },

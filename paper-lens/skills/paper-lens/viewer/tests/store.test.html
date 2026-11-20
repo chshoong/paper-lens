@@ -30,6 +30,7 @@ test("add keeps insertion order and before puts first", async () => {
 test("update is debounced to one write with the last value", async () => {
   const { store } = await fresh();
   const id = await store.add({ type: "text", text: "" });
+  await sleep(30); // add() saves in the background; let that first write land
   const before = __fake.dbWrites;
   store.update(id, { text: "1" }); await sleep(100);
   store.update(id, { text: "12" }); await sleep(100);
@@ -98,5 +99,73 @@ test("remove and move", async () => {
   await store.remove(b);
   await sleep(30);
   eq(get().map((x) => x.text), ["A", "C"]);
+});
+
+test("add resolves before a slow db write finishes", async () => {
+  const { store, get } = await fresh();
+  __fake.dbLatency = 300;
+  const t0 = performance.now();
+  const id = await store.add({ type: "text", text: "x" });
+  const ms = performance.now() - t0;
+  __fake.dbLatency = 0;
+  ok(ms < 100, "took " + Math.round(ms) + "ms");
+  ok(get().some((b) => b.id === id), "shown at once");
+  await sleep(350);
+});
+
+test("a write that keeps failing is reported, and retry saves it", async () => {
+  const { store } = await fresh();
+  const id = await store.add({ type: "text", text: "" });
+  await sleep(20);
+  __fake.failWrites = 2;
+  store.update(id, { text: "important" });
+  await store.flush();
+  await sleep(1500);
+  ok(store.status().failed.has(id), "marked failed");
+  eq(__fake.db.get("blocks/" + id).text, "", "not saved yet");
+  await store.retryFailed();
+  await sleep(50);
+  eq(__fake.db.get("blocks/" + id).text, "important");
+  eq(store.status().failed.size, 0);
+});
+
+test("a single failure is retried automatically", async () => {
+  const { store } = await fresh();
+  const id = await store.add({ type: "text", text: "" });
+  await sleep(20);
+  __fake.failWrites = 1;
+  store.update(id, { text: "once" });
+  await store.flush();
+  await sleep(1500);
+  eq(__fake.db.get("blocks/" + id).text, "once");
+  eq(store.status().failed.size, 0);
+});
+
+test("pagehide issues pending writes at once even with a write in flight", async () => {
+  const { store } = await fresh();
+  const id = await store.add({ type: "text", text: "" });
+  await sleep(20);
+  __fake.dbLatency = 400;
+  store.update(id, { text: "v1" });
+  await sleep(650); // v1 is now in flight
+  store.update(id, { text: "v2" });
+  const before = __fake.writesIssued;
+  window.dispatchEvent(new Event("pagehide"));
+  eq(__fake.writesIssued, before + 1, "v2 issued synchronously");
+  __fake.dbLatency = 0;
+  await sleep(900);
+  eq(__fake.db.get("blocks/" + id).text, "v2");
+});
+
+test("many inserts at the same spot keep their order", async () => {
+  const { store, get } = await fresh();
+  const a = await store.add({ type: "text", text: "a" });
+  await store.add({ type: "text", text: "z" });
+  let cur = a;
+  for (let i = 1; i <= 70; i++) cur = await store.add({ type: "text", text: "n" + i }, { after: cur });
+  await sleep(50);
+  const texts = get().map((b) => b.text);
+  eq(texts[0], "a"); eq(texts[71], "z");
+  for (let i = 1; i <= 70; i++) if (texts[i] !== "n" + i) throw new Error("position " + i + " is " + texts[i]);
 });
 </script></body></html>

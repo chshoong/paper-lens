@@ -27,12 +27,33 @@
     const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
     const persistLocal = () => lsSet(localKey + ":blocks", [...remote.values()]);
 
+    // Writes to one document run one at a time. A failed write is retried once; if it fails again the
+    // block is kept in `failed` (shown to the reader with a retry) until a later write of it succeeds.
+    const failed = new Map();      // id -> latest block that could not be saved
+    let inflight = 0;
+    const statusCbs = new Set();
+    const tellStatus = () => statusCbs.forEach((cb) => { try { cb(); } catch {} });
+    const RETRYABLE = new Set(["unavailable", "upstream_error", "deadline_exceeded", "resource_exhausted", "aborted", undefined]);
+    function attempt(id, block, retried) {
+      if (mode !== "db") { persistLocal(); failed.delete(id); return Promise.resolve(); }
+      inflight++; tellStatus();
+      return db.doc("blocks/" + id).set(bodyOf(block)).then(
+        () => { inflight--; failed.delete(id); tellStatus(); },
+        (e) => {
+          inflight--;
+          if (!retried && RETRYABLE.has(e && e.code)) {
+            return new Promise((r) => setTimeout(r, 300 + Math.random() * 400)).then(() => attempt(id, block, true));
+          }
+          console.warn("note write failed", id, e);
+          failed.set(id, block); tellStatus();
+        });
+    }
     function chain(id, fn) {
-      const p = (chains.get(id) || Promise.resolve()).then(fn, fn);
-      chains.set(id, p.catch((e) => console.warn("note write failed", id, e)));
+      const p = (chains.get(id) || Promise.resolve()).then(fn, fn).catch(() => {});
+      chains.set(id, p);
       return p;
     }
-    const writeDoc = (id, block) => chain(id, () => (mode === "db" ? db.doc("blocks/" + id).set(bodyOf(block)) : (persistLocal(), Promise.resolve())));
+    const writeDoc = (id, block) => chain(id, () => attempt(id, block, false));
     const deleteDoc = (id) => chain(id, () => (mode === "db" ? db.doc("blocks/" + id).delete() : (persistLocal(), Promise.resolve())));
 
     async function migrate(existingCount) {
@@ -73,18 +94,27 @@
     }
 
     // ---- ordering ----
+    function neighbours(opts, l) {
+      if (opts && opts.before) { const i = l.findIndex((b) => b.id === opts.before); if (i >= 0) return [i > 0 ? l[i - 1].order : null, l[i].order]; }
+      if (opts && opts.after) { const i = l.findIndex((b) => b.id === opts.after); if (i >= 0) return [l[i].order, i + 1 < l.length ? l[i + 1].order : null]; }
+      return [l.length ? l[l.length - 1].order : null, null];
+    }
+    // Midpoints halve the gap on every insert at the same spot; renumber before they run out of precision.
+    function renumber(excludeId) {
+      list().filter((b) => b.id !== excludeId).forEach((b, i) => {
+        if (b.order === i + 1) return;
+        const nb = { ...remote.get(b.id), order: i + 1 };
+        remote.set(b.id, nb);
+        writeDoc(b.id, nb);
+      });
+    }
     function orderFor(opts, excludeId) {
-      const l = list().filter((b) => b.id !== excludeId);
-      const O = window.PLCore.orderBetween;
-      if (opts && opts.before) {
-        const i = l.findIndex((b) => b.id === opts.before);
-        if (i >= 0) return O(i > 0 ? l[i - 1].order : null, l[i].order);
+      let [lo, hi] = neighbours(opts, list().filter((b) => b.id !== excludeId));
+      if (lo != null && hi != null && hi - lo < 1e-6) {
+        renumber(excludeId);
+        [lo, hi] = neighbours(opts, list().filter((b) => b.id !== excludeId));
       }
-      if (opts && opts.after) {
-        const i = l.findIndex((b) => b.id === opts.after);
-        if (i >= 0) return O(l[i].order, i + 1 < l.length ? l[i + 1].order : null);
-      }
-      return O(l.length ? l[l.length - 1].order : null, null);
+      return window.PLCore.orderBetween(lo, hi);
     }
 
     // ---- api ----
@@ -99,8 +129,22 @@
       return writeDoc(id, full);
     }
     const flushNow = () => Promise.all([...pending.keys()].map(commit));
-    window.addEventListener("pagehide", flushNow);
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushNow(); });
+    // Leaving the page: issue every unsaved edit right now instead of queueing it behind a write in
+    // flight (the page may be gone before that one is acknowledged). The latest full block wins.
+    function flushLeaving() {
+      for (const id of [...pending.keys()]) {
+        clearTimeout(timers.get(id)); timers.delete(id);
+        const base = remote.get(id);
+        const full = base && { ...base, ...pending.get(id), updatedAt: nowIso() };
+        pending.delete(id);
+        if (!full) continue;
+        remote.set(id, full);
+        if (mode === "db") db.doc("blocks/" + id).set(bodyOf(full)).catch(() => { failed.set(id, full); tellStatus(); });
+        else persistLocal();
+      }
+    }
+    window.addEventListener("pagehide", flushLeaving);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushLeaving(); });
 
     return {
       mode,
@@ -110,7 +154,7 @@
         const block = { type: "text", text: "", by: "me", createdAt: t, updatedAt: t, ...partial, id, order: orderFor(opts) };
         remote.set(id, block); optimistic.add(id);
         emit();
-        await writeDoc(id, block);
+        writeDoc(id, block); // in the background, so the caller can focus the new block at once
         return id;
       },
       update(id, patch) {
@@ -136,6 +180,16 @@
         await writeDoc(id, moved);
       },
       pendingIds: () => new Set(pending.keys()),
+      status: () => ({ pending: new Set(pending.keys()), inflight, failed: new Set(failed.keys()) }),
+      onStatus(cb) { statusCbs.add(cb); return () => statusCbs.delete(cb); },
+      retryFailed() {
+        const ids = [...failed.keys()];
+        return Promise.all(ids.map((id) => {
+          const b = remote.get(id);
+          if (!b) { failed.delete(id); return null; }
+          return chain(id, () => attempt(id, { ...b, updatedAt: nowIso() }, false));
+        })).then(tellStatus);
+      },
       blocks: list,
     };
   }
