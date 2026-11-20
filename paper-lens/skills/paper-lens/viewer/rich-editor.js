@@ -110,10 +110,19 @@
         return false;
       } },
       mathBelow: { key: " ", collapsed: true, prefix: /^\$\$$/, handler(range) {
-        quill.deleteText(range.index - 2, 2, "user");
-        // drop the now-empty line unless it is the only one
-        const [line] = quill.getLine(range.index - 2);
-        if (line && line.length() <= 1 && quill.getLength() > 1) quill.deleteText(range.index - 2 - (range.index - 2 > 0 ? 1 : 0), 1, "user");
+        const at = range.index - 2;
+        quill.deleteText(at, 2, "user");
+        // Drop the now-empty line without disturbing its neighbours' line formats (heading, list, ...).
+        const len = quill.getLength();
+        if (len > 1) {
+          if (at + 1 < len) quill.deleteText(at, 1, "user"); // its own newline: the next line moves up intact
+          else if (at > 0) {
+            const [prevLine] = quill.getLine(at - 1);
+            const fmt = prevLine ? prevLine.formats() : {};
+            quill.deleteText(at - 1, 1, "user");
+            if (Object.keys(fmt).length) quill.formatLine(at - 1, 1, fmt, "user");
+          }
+        }
         cb.onMathBlockBelow && cb.onMathBlockBelow();
         return false;
       } },
@@ -140,30 +149,57 @@
     quill.setContents(C().mdToDelta(text), "silent");
     let last = C().deltaToMd(quill.getContents());
 
-    // $...$ followed by a typed non-digit becomes inline math.
+    // $...$ becomes inline math right when the reader types the character after the closing $
+    // (and that character is not a digit), only at the caret. Undo/redo never re-promotes.
+    let dirty = false, undoing = false;
+    quill.root.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z" || e.key === "y")) { undoing = true; setTimeout(() => (undoing = false), 0); }
+    }, true);
     function docString() {
       let s = "";
       for (const op of quill.getContents().ops) s += typeof op.insert === "string" ? op.insert : "￼";
       return s;
     }
-    function promoteMath(includeLineEnds) {
-      const s = docString();
-      const re = includeLineEnds ? /(^|[^\\$])\$([^\s$][^$\n￼]*?[^\s\\$]|[^\s$\\])\$(?=[^\d$]|$)/gm : /(^|[^\\$])\$([^\s$][^$\n￼]*?[^\s\\$]|[^\s$\\])\$(?=[^\d$\n])/g;
-      const hits = [];
-      let m;
-      while ((m = re.exec(s))) hits.push({ at: m.index + m[1].length, len: m[2].length + 2, latex: m[2] });
-      for (const h of hits.reverse()) {
-        const fmt = quill.getFormat(h.at, 1);
-        quill.deleteText(h.at, h.len, "user");
-        quill.insertEmbed(h.at, "mathInline", h.latex, "user");
-        const keep = {}; for (const k of ["bold", "italic", "underline", "strike", "color", "highlight", "size"]) if (fmt[k]) keep[k] = fmt[k];
-        if (Object.keys(keep).length) quill.formatText(h.at, 1, keep, "user");
-        const sel = quill.getSelection();
-        if (sel && sel.index > h.at) quill.setSelection(sel.index - h.len + 1, 0, "silent");
-      }
-      return hits.length;
+    const MATH_AT_END = /(^|[^\\$])\$([^\s$][^$\n\uFFFC]*?[^\s\\$]|[^\s$\\])\$$/;
+    function promoteAt(endIndex, kept) {
+      const m = MATH_AT_END.exec(docString().slice(0, endIndex));
+      if (!m) return false;
+      const len = m[2].length + 2, at = endIndex - len;
+      const fmt = quill.getFormat(at, 1);
+      quill.history.cutoff(); // undo takes back the conversion only
+      quill.deleteText(at, len, "user");
+      quill.insertEmbed(at, "mathInline", m[2], "user");
+      const keep = {}; for (const k of ["bold", "italic", "underline", "strike", "color", "highlight", "size"]) if (fmt[k]) keep[k] = fmt[k];
+      if (Object.keys(keep).length) quill.formatText(at, 1, keep, "user");
+      quill.setSelection(at + 1 + kept, 0, "silent");
+      quill.history.cutoff();
+      return true;
     }
-    function flushMath() { promoteMath(true); }
+    // Where the inserted text of this change ends (from the change itself, not the caret).
+    function insertEnd(delta) {
+      let idx = 0, end = -1;
+      for (const op of delta.ops || []) {
+        if (typeof op.retain === "number") idx += op.retain;
+        else if (typeof op.insert === "string") { idx += op.insert.length; end = idx; }
+        else if (op.insert) idx += 1;
+      }
+      return end;
+    }
+    function promoteTyped(delta) {
+      const end = insertEnd(delta);
+      if (end < 1) return;
+      const typed = docString()[end - 1];
+      if (!typed || /[\d$\n]/.test(typed)) return;
+      promoteAt(end - 1, 1);
+    }
+    // When leaving the block, a formula typed at the very end of the caret's line is converted too.
+    function flushMath() {
+      if (!dirty) return;
+      const sel = quill.getSelection() || { index: quill.getLength() - 1 };
+      const s2 = docString();
+      let end = sel.index; while (end < s2.length && s2[end] !== "\n") end++;
+      promoteAt(end, 0);
+    }
 
     function emit() {
       const t = C().deltaToMd(quill.getContents());
@@ -172,7 +208,9 @@
     let promoting = false;
     quill.on("text-change", (delta, old, source) => {
       if (source !== "user") return;
-      if (!promoting) { promoting = true; try { promoteMath(false); } finally { promoting = false; } }
+      dirty = true;
+      if (!pop.hidden && popAt && popAt.quill === quill && !promoting) closePop(false); // indices moved
+      if (!promoting && !undoing) { promoting = true; try { promoteTyped(delta); } finally { promoting = false; } }
       emit();
     });
 
@@ -194,6 +232,7 @@
 
     // click a formula to edit it
     let popAt = null;
+    quill.root.addEventListener("mousedown", (e) => { if (!e.target.closest(".ql-math") && !pop.hidden && popAt && popAt.quill === quill) closePop(false); });
     quill.root.addEventListener("click", (e) => {
       const n = e.target.closest(".ql-math");
       if (!n) return;
@@ -230,9 +269,11 @@
       pop.hidden = true;
       const at = popAt.index; popAt = null;
       if (commit) {
+        promoting = true;
         quill.deleteText(at, 1, "user");
         if (v) quill.insertEmbed(at, "mathInline", v, "user");
         quill.setSelection(at + (v ? 1 : 0), 0, "user");
+        promoting = false;
       } else quill.focus();
     }
 

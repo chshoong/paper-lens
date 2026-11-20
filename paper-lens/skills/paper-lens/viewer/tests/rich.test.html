@@ -1,5 +1,6 @@
 <!doctype html><html><head><meta charset="utf-8"><title>rich convert tests</title></head><body>
 <script src="harness.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script src="../notes-core.js"></script>
 <script src="../rich-convert.js"></script>
 <script>
@@ -60,4 +61,41 @@ test("everyday Claude text round trips", () => {
 });
 test("normalize", () => { eq(R().normalize("\n\na  \n\n\n\nb\n\n"), "a\n\nb"); });
 test("empty", () => { rt(""); eq(R().deltaToMd({ ops: [{ insert: "\n" }] }), ""); });
+
+// ---- review fixes ----
+const D = (ops) => ({ ops: [...ops, { insert: "\n" }] });
+const back = (d) => R().mdToDelta(R().deltaToMd(d)).ops;
+const plainOps = (ops) => JSON.stringify(ops.map((o) => (o.attributes ? { insert: o.insert, attributes: Object.fromEntries(Object.entries(o.attributes).sort()) } : o)));
+const shows = (md) => { const h = marked.parse(md); return { h, stray: /\*|~~/.test(h.replace(/<[^>]+>/g, "")) }; };
+test("bold inside italic writes markdown that reads back", () => {
+  for (const d of [
+    D([{ insert: "a", attributes: { bold: true, italic: true } }, { insert: "b", attributes: { italic: true } }]),
+    D([{ insert: "a", attributes: { bold: true, italic: true } }, { insert: "b", attributes: { italic: true } }, { insert: "c", attributes: { bold: true, italic: true } }]),
+    D([{ insert: "이 문장은 ", attributes: { italic: true } }, { insert: "핵심", attributes: { italic: true, bold: true } }, { insert: " 단어", attributes: { italic: true } }]),
+  ]) {
+    eq(plainOps(back(d)), plainOps(d.ops), "delta survives: " + R().deltaToMd(d));
+    ok(!shows(R().deltaToMd(d)).stray, "no stray * in static view: " + shows(R().deltaToMd(d)).h);
+  }
+});
+test("bold next to Korean particles and punctuation shows as bold", () => {
+  for (const d of [
+    D([{ insert: "(주의)", attributes: { bold: true } }, { insert: "는 중요하다" }]),
+    D([{ insert: "'attention'", attributes: { bold: true } }, { insert: "은" }]),
+    D([{ insert: { mathInline: "x" }, attributes: { bold: true } }, { insert: "는 변수" }]),
+    D([{ insert: "a ", attributes: { bold: true } }, { insert: "b" }]),
+    D([{ insert: " a", attributes: { bold: true } }, { insert: "b" }]),
+  ]) {
+    const md = R().deltaToMd(d);
+    eq(plainOps(back(d)), plainOps(d.ops), "delta survives: " + md);
+    const r = shows(md);
+    ok(!r.stray && /<(strong|b)>/.test(r.h), "bold in static view: " + md + " -> " + r.h);
+  }
+});
+test("a lone * between spaces is not emphasis", () => {
+  ok(!R().mdToDelta("5 * 3 * 2").ops.some((o) => o.attributes && o.attributes.italic), "no italic");
+});
+test("a literal backslash before $x$ stays text", () => {
+  const d = D([{ insert: "\\$x$ y" }]);
+  eq(plainOps(back(d)), plainOps(d.ops), R().deltaToMd(d));
+});
 </script></body></html>

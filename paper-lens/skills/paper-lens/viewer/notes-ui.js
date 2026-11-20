@@ -215,7 +215,7 @@
     function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 420) + "px"; }
 
     function startEdit(id) {
-      if (editing && editing.id === id) { editing.ta.focus(); return; }
+      if (editing && editing.id === id) { if (editing.rich) editing.rich.quill.focus(); else editing.ta.focus(); return; }
       if (editing) stopEdit();
       const n = nodes.get(id), b = blockById(id);
       if (!n || !b) return;

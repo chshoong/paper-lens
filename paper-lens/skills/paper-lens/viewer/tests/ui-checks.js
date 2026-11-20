@@ -489,4 +489,71 @@
       ok(ref && document.getElementById(ref), "glyph " + ref + " is defined");
     }
   });
+
+  // ---- review fixes (rich) ----
+  test("rich: $$ under a heading keeps the heading", async () => {
+    const R = mountRich("## 제목");
+    R.q.setSelection(R.q.getLength() - 1, 0);
+    R.q.insertText(R.q.getLength() - 1, "\n", "user");
+    R.typeAtEnd("$$"); R.press(" ");
+    eq(R.calls.mathBelow, 1, "math below");
+    eq(R.ed.getText(), "## 제목");
+  });
+
+  test("rich: untouched $a$ text is not turned into math by other edits or closing", async () => {
+    if (DB_OFF) return;
+    const E = await mountEditor("db");
+    const id = await E.ui.insert({ type: "text", text: "\\$a$ 끝" });
+    await sleep(100);
+    const mine = () => window.__fake.issuedPaths.filter((p) => p === "blocks/" + id).length;
+    const before = mine();
+    await E.edit(id);
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await waitFor(() => E.ui.editingId() === null, 3000, "closed");
+    await sleep(800);
+    eq(mine(), before, "closing writes nothing");
+    const ed = await E.edit(id);
+    const q = E.ui.editor().quill;
+    q.insertText(q.getLength() - 1, " 더", "user");
+    await sleep(50);
+    ok(!ed.querySelector(".ql-math"), "no math from an unrelated edit");
+  });
+
+  test("rich: undo after auto math keeps the typed $x$", async () => {
+    const R = mountRich("");
+    R.typeAtEnd("$x$"); R.typeAtEnd(" ");
+    await waitFor(() => R.ed.root.querySelector(".ql-math"), 3000, "math");
+    R.press("z", { metaKey: true });
+    await sleep(100);
+    ok(!R.ed.root.querySelector(".ql-math"), "math undone");
+    ok(R.q.getText().includes("$x$"), "text back: " + JSON.stringify(R.q.getText()));
+  });
+
+  test("rich: clicking inside an open editor raises no errors", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "글" });
+    const ed = await E.edit(id);
+    const n0 = window.__fake.errors.length;
+    ed.click(); ed.click();
+    await sleep(50);
+    eq(window.__fake.errors.length, n0, String(window.__fake.errors.slice(n0)));
+  });
+
+  test("rich: editing the text closes an open formula popover", async () => {
+    const R = mountRich("값 $x$ 끝");
+    const m = await waitFor(() => R.ed.root.querySelector(".ql-math"), 3000, "math");
+    m.click();
+    await waitFor(() => !document.querySelector("#mathpop").hidden, 2000, "popover open");
+    R.q.insertText(0, "앞 ", "user");
+    await sleep(30);
+    ok(document.querySelector("#mathpop").hidden, "popover closed");
+  });
+
+  test("light yellow text is readable on white (contrast >= 4.5)", async () => {
+    const probe = document.createElement("span"); probe.style.color = "var(--c-yellow)"; document.body.append(probe);
+    const [r, g, b] = getComputedStyle(probe).color.match(/\d+/g).map(Number); probe.remove();
+    const L = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const lum = 0.2126 * L(r) + 0.7152 * L(g) + 0.0722 * L(b);
+    ok(1.05 / (lum + 0.05) >= 4.5, "contrast " + (1.05 / (lum + 0.05)).toFixed(2));
+  });
 })();

@@ -23,7 +23,16 @@
     return -1;
   }
 
+  // CommonMark flanking: a delimiter run opens only if left-flanking and closes only if right-flanking.
+  const isWS = (c) => c == null || /\s/.test(c);
+  const isPunct = (c) => c != null && /[\p{P}\p{S}]/u.test(c);
+  const leftFlank = (s, i, n) => { const prev = s[i - 1], next = s[i + n]; return !isWS(next) && (!isPunct(next) || isWS(prev) || isPunct(prev)); };
+  const rightFlank = (s, i, n) => { const prev = s[i - 1], next = s[i + n]; return !isWS(prev) && (!isPunct(prev) || isWS(next) || isPunct(next)); };
+
   const OPEN_TAGS = [
+    { re: /^<b>/, close: "</b>", attr: () => ({ bold: true }) },
+    { re: /^<i>/, close: "</i>", attr: () => ({ italic: true }) },
+    { re: /^<s>/, close: "</s>", attr: () => ({ strike: true }) },
     { re: /^<u>/, close: "</u>", attr: () => ({ underline: true }) },
     { re: /^<span data-c="([a-z]+)">/, close: "</span>", attr: (m) => (COLORS.includes(m[1]) ? { color: m[1] } : null) },
     { re: /^<mark data-c="([a-z]+)">/, close: "</mark>", attr: (m) => (COLORS.includes(m[1]) ? { highlight: m[1] } : null) },
@@ -51,13 +60,13 @@
     };
     while (i < s.length) {
       // Bold first, so "*a **b** c*" nests correctly.
-      if (s.startsWith("**", i) && stop !== "**") { const j = nest(i + 2, { bold: true }, "**"); if (j != null) { i = j; continue; } }
-      if (stop && s.startsWith(stop, i)) return { ops, i: i + stop.length, closed: true };
+      if (s.startsWith("**", i) && stop !== "**" && leftFlank(s, i, 2)) { const j = nest(i + 2, { bold: true }, "**"); if (j != null) { i = j; continue; } }
+      if (stop && s.startsWith(stop, i) && (stop[0] === "<" || rightFlank(s, i, stop.length))) return { ops, i: i + stop.length, closed: true };
       const c = s[i];
       if (c === "\\" && ESCAPABLE.has(s[i + 1])) { text(s[i + 1]); i += 2; continue; }
       if (c === "&") { const ent = Object.keys(ENTITIES).find((e) => s.startsWith(e, i)); if (ent) { text(ENTITIES[ent]); i += ent.length; continue; } }
-      if (s.startsWith("~~", i)) { const j = nest(i + 2, { strike: true }, "~~"); if (j != null) { i = j; continue; } }
-      if (c === "*" && !s.startsWith("**", i)) { const j = nest(i + 1, { italic: true }, "*"); if (j != null) { i = j; continue; } }
+      if (s.startsWith("~~", i) && leftFlank(s, i, 2)) { const j = nest(i + 2, { strike: true }, "~~"); if (j != null) { i = j; continue; } }
+      if (c === "*" && !s.startsWith("**", i) && leftFlank(s, i, 1)) { const j = nest(i + 1, { italic: true }, "*"); if (j != null) { i = j; continue; } }
       if (c === "`") { const k = s.indexOf("`", i + 1); if (k > i + 1) { const save = attrs; attrs = { ...attrs, code: true }; text(s.slice(i + 1, k)); attrs = save; i = k + 1; continue; } }
       if (c === "$") { const k = mathEnd(s, i); if (k > 0) { ops.push(attrs && Object.keys(attrs).length ? { insert: { mathInline: s.slice(i + 1, k) }, attributes: { ...attrs } } : { insert: { mathInline: s.slice(i + 1, k) } }); i = k + 1; continue; } }
       if (c === "[") {
@@ -146,7 +155,8 @@
     if (out.includes("$")) {
       let fixed = "", i = 0;
       while (i < out.length) {
-        if (out[i] === "$" && out[i - 1] !== "\\" && (out[i + 1] === "$" || mathEnd(out, i) > 0)) { fixed += "\\$"; i++; continue; }
+        let bs = 0; for (let k = i - 1; k >= 0 && out[k] === "\\"; k--) bs++;
+        if (out[i] === "$" && bs % 2 === 0 && (out[i + 1] === "$" || mathEnd(out, i) > 0 || (i > 0 && bs > 0))) { fixed += "\\$"; i++; continue; }
         fixed += out[i++];
       }
       out = fixed;
@@ -157,22 +167,56 @@
     return out;
   }
 
+  const WRAP_ORDER = Object.fromEntries(WRAP.map(([k], i) => [k, i]));
+  const MD_DELIM = { bold: "**", italic: "*", strike: "~~" };
+  const TAG = { bold: ["<b>", "</b>"], italic: ["<i>", "</i>"], strike: ["<s>", "</s>"] };
+
   function inlineToMd(segs) {
-    let out = "";
-    const stack = []; // [key, value, closeStr]
-    const want = (a) => WRAP.filter(([k]) => a && a[k] != null && a[k] !== false).map(([k, f]) => [k, a[k], f(a[k])]);
+    // 1) Decide nesting: keep marks that continue; open new ones with the longest-lived outermost.
+    const toks = [], stack = [];
+    const lasts = (k, v, from) => { let n = 0; for (let j = from; j < segs.length; j++) { const a = segs[j].attributes; if (a && a[k] === v) n++; else break; } return n; };
     segs.forEach((seg, idx) => {
-      const w = want(seg.attributes);
-      // Keep the longest prefix of the open stack that is still wanted, in order.
+      const a = seg.attributes || {};
+      const want = WRAP.filter(([k]) => a[k] != null && a[k] !== false).map(([k]) => [k, a[k]]);
       let keep = 0;
-      while (keep < stack.length && w.some(([k, v]) => k === stack[keep][0] && v === stack[keep][1])) keep++;
-      while (stack.length > keep) out += stack.pop()[2][1];
-      for (const [k, v, wrap] of w) if (!stack.some((s) => s[0] === k)) { out += wrap[0]; stack.push([k, v, wrap]); }
-      if (seg.math != null) out += "$" + seg.math + "$";
-      else if (seg.attributes && seg.attributes.code) out += "`" + seg.text + "`";
-      else out += escapeText(seg.text, idx === 0 && out === "");
+      while (keep < stack.length && want.some(([k, v]) => k === stack[keep].k && v === stack[keep].v)) keep++;
+      while (stack.length > keep) toks.push({ t: "close", ref: stack.pop() });
+      const missing = want.filter(([k]) => !stack.some((o) => o.k === k));
+      missing.sort((x, y) => (x[0] === "link" ? -1 : y[0] === "link" ? 1 : 0) || lasts(y[0], y[1], idx) - lasts(x[0], x[1], idx) || WRAP_ORDER[x[0]] - WRAP_ORDER[y[0]]);
+      for (const [k, v] of missing) { const o = { t: "open", k, v, md: !!MD_DELIM[k] }; toks.push(o); stack.push(o); }
+      if (seg.math != null) toks.push({ t: "lit", s: "$" + seg.math + "$" });
+      else if (a.code) toks.push({ t: "lit", s: "`" + seg.text + "`" });
+      else toks.push({ t: "text", text: seg.text });
     });
-    while (stack.length) out += stack.pop()[2][1];
+    while (stack.length) toks.push({ t: "close", ref: stack.pop() });
+
+    // 2) Render; a Markdown delimiter that would not read back (flanking, or glued to another
+    //    delimiter of the same character) becomes an HTML tag instead. Repeat until stable.
+    const piece = (tk, first) => {
+      if (tk.t === "lit") return tk.s;
+      if (tk.t === "text") return escapeText(tk.text, first);
+      const o = tk.t === "open" ? tk : tk.ref;
+      if (MD_DELIM[o.k]) return o.md ? MD_DELIM[o.k] : TAG[o.k][tk.t === "open" ? 0 : 1];
+      return WRAP.find(([k]) => k === o.k)[1](o.v)[tk.t === "open" ? 0 : 1];
+    };
+    let out = "";
+    for (let round = 0; round < 12; round++) {
+      const ps = toks.map((tk, i) => piece(tk, i === 0));
+      out = ps.join("");
+      let changed = false, pos = 0;
+      const starts = ps.map((p) => { const st = pos; pos += p.length; return st; });
+      toks.forEach((tk, i) => {
+        if (tk.t !== "open" && tk.t !== "close") return;
+        const o = tk.t === "open" ? tk : tk.ref;
+        if (!MD_DELIM[o.k] || !o.md) return;
+        const st = starts[i], n = ps[i].length, ch = ps[i][0];
+        const prev = out[st - 1], next = out[st + n];
+        const glued = prev === ch || next === ch;
+        const ok = tk.t === "open" ? leftFlank(out, st, n) : rightFlank(out, st, n);
+        if (!changed && (!ok || glued)) { o.md = false; changed = true; } // one at a time: fewest tags
+      });
+      if (!changed) break;
+    }
     return out;
   }
 
