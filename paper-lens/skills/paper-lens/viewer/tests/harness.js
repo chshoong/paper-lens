@@ -24,5 +24,6 @@
     },
   };
   window.PLTest = PLTest;
-  window.addEventListener("load", () => setTimeout(() => PLTest.run(), 0));
+  // ?norun on the page URL: load the page without running the checks (manual debugging).
+  if (!/[?&]norun\b/.test(location.search)) window.addEventListener("load", () => setTimeout(() => PLTest.run(), 0));
 })();
