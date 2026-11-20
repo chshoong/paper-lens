@@ -46,7 +46,10 @@
   bar.id = "richbar"; bar.hidden = true; bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "글자 꾸미기");
   const pop = document.createElement("div");
   pop.id = "mathpop"; pop.hidden = true; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "수식 고치기");
-  const mountUi = () => { if (!bar.isConnected) document.body.append(bar, pop); };
+  const live = document.createElement("div");
+  live.id = "mathlive"; live.hidden = true; live.setAttribute("aria-hidden", "true");
+  let liveOwner = null;
+  const mountUi = () => { if (!bar.isConnected) document.body.append(bar, pop, live); };
 
   function btn(label, act, v, title, extraClass) {
     const b = document.createElement("button");
@@ -176,21 +179,34 @@
       return true;
     }
     // Where the inserted text of this change ends (from the change itself, not the caret).
-    function insertEnd(delta) {
-      let idx = 0, end = -1;
+    function insertRange(delta) {
+      let idx = 0, range = null;
       for (const op of delta.ops || []) {
         if (typeof op.retain === "number") idx += op.retain;
-        else if (typeof op.insert === "string") { idx += op.insert.length; end = idx; }
+        else if (typeof op.insert === "string") { range = { start: idx, end: idx + op.insert.length }; idx += op.insert.length; }
         else if (op.insert) idx += 1;
       }
-      return end;
+      return range;
     }
+    // The first inserted character decides: "$x$" + " 이다" (typed, pasted or IME-committed) converts.
+    // Every $..$ whose following character arrived in this change converts (typed, pasted, IME commit).
     function promoteTyped(delta) {
-      const end = insertEnd(delta);
-      if (end < 1) return;
-      const typed = docString()[end - 1];
-      if (!typed || /[\d$\n]/.test(typed)) return;
-      promoteAt(end - 1, 1);
+      const r = insertRange(delta);
+      if (!r) return;
+      const text = docString();
+      const from = text.lastIndexOf("\n", r.start - 1) + 1;
+      const re = /(^|[^\\$])\$([^\s$][^$\n\uFFFC]*?[^\s\\$]|[^\s$\\])\$(?=[^\d$\n])/g;
+      const hits = [];
+      let m;
+      const seg = text.slice(from, r.end);
+      while ((m = re.exec(seg))) {
+        const after = from + m.index + m[0].length; // index of the character after the closing $
+        if (after >= r.start && after < r.end) hits.push(after);
+      }
+      if (!hits.length) return;
+      const tail = text.length - r.end;
+      for (const after of hits.reverse()) promoteAt(after, Math.max(0, r.end - after));
+      quill.setSelection(docString().length - tail, 0, "silent"); // caret back to the end of the insert
     }
     // When leaving the block, a formula typed at the very end of the caret's line is converted too.
     function flushMath() {
@@ -200,6 +216,36 @@
       let end = sel.index; while (end < s2.length && s2[end] !== "\n") end++;
       promoteAt(end, 0);
     }
+
+    // Live preview while a formula is being typed: from the opening $ up to the caret.
+    let liveTimer = null;
+    function updateLive() {
+      clearTimeout(liveTimer);
+      liveTimer = setTimeout(() => {
+        const sel = quill.hasFocus() ? quill.getSelection() : null;
+        if (!sel || sel.length) { if (liveOwner === api) live.hidden = true; return; }
+        const text = docString();
+        const lineStart = text.lastIndexOf("\n", sel.index - 1) + 1;
+        const before = text.slice(lineStart, sel.index);
+        const dollars = [];
+        for (let i = 0; i < before.length; i++) if (before[i] === "$" && before[i - 1] !== "\\" && before[i + 1] !== "$" && before[i - 1] !== "$") dollars.push(i);
+        let latex = null;
+        if (dollars.length % 2 === 1) latex = before.slice(dollars[dollars.length - 1] + 1);
+        else if (dollars.length && dollars[dollars.length - 1] === before.length - 1) latex = before.slice(dollars[dollars.length - 2] + 1, before.length - 1);
+        if (!latex || /^\s/.test(latex) || !/[A-Za-z\\^_{]/.test(latex) || latex.includes("\uFFFC")) { if (liveOwner === api) live.hidden = true; return; }
+        liveOwner = api;
+        window.PLMath && window.PLMath.render(latex, false).then(({ node, error }) => {
+          if (liveOwner !== api) return;
+          live.textContent = ""; live.append(node);
+          live.classList.toggle("err", !!error);
+          live.hidden = false;
+          const b = quill.getBounds(sel.index), rr = quill.root.getBoundingClientRect();
+          live.style.left = Math.min(Math.max(8, rr.left + b.left - 12), window.innerWidth - live.offsetWidth - 8) + "px";
+          live.style.top = Math.min(rr.top + b.bottom + 6, window.innerHeight - live.offsetHeight - 8) + "px";
+        });
+      }, 90);
+    }
+    quill.on("selection-change", updateLive);
 
     function emit() {
       const t = C().deltaToMd(quill.getContents());
@@ -212,6 +258,7 @@
       if (!pop.hidden && popAt && popAt.quill === quill && !promoting) closePop(false); // indices moved
       if (!promoting && !undoing) { promoting = true; try { promoteTyped(delta); } finally { promoting = false; } }
       emit();
+      updateLive();
     });
 
     // toolbar follows this editor's selection
@@ -301,6 +348,7 @@
         flushMath();
         emit();
         if (active === api) { bar.hidden = true; pop.hidden = true; active = null; }
+        if (liveOwner === api) { live.hidden = true; liveOwner = null; }
         el.remove();
       },
     };

@@ -556,4 +556,22 @@
     const lum = 0.2126 * L(r) + 0.7152 * L(g) + 0.0722 * L(b);
     ok(1.05 / (lum + 0.05) >= 4.5, "contrast " + (1.05 / (lum + 0.05)).toFixed(2));
   });
+
+  // ---- live math preview ----
+  test("rich: text inserted in one go after $x$ still makes math", async () => {
+    const R = mountRich("");
+    R.typeAtEnd("넓이는 $\\pi r^2$");
+    R.typeAtEnd(" 이다");
+    await waitFor(() => R.ed.root.querySelector(".ql-math svg"), 15000, "math");
+    ok(R.ed.getText().startsWith("넓이는 $\\pi r^2$ 이다"), R.ed.getText());
+  });
+
+  test("rich: a live preview follows a formula while it is being typed", async () => {
+    const R = mountRich("");
+    R.q.focus();
+    R.typeAtEnd("넓이는 $\\pi r^2");
+    await waitFor(() => !$("#mathlive").hidden && $("#mathlive svg"), 15000, "live preview shown");
+    R.typeAtEnd("$"); R.typeAtEnd(" ");
+    await waitFor(() => $("#mathlive").hidden, 3000, "preview hidden after conversion");
+  });
 })();

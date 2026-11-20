@@ -25,7 +25,7 @@
   --f-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   --f-read: "Noto Serif KR", "AppleMyungjo", "Batang", Georgia, serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --panel-w: max(440px, 45vw);
+  --panel-w: clamp(300px, 45vw, 1000px);
   /* note colors (text / highlight) */
   --c-default: var(--fg); --c-gray: #787774; --c-brown: #9f6b53; --c-orange: #d9730d; --c-yellow: #8a6416; --c-green: #448361; --c-blue: #337ea9; --c-purple: #9065b0; --c-red: #d44c47;
   --h-default: transparent; --h-gray: #ebebe8; --h-brown: #f1e6e1; --h-orange: #fbe4cc; --h-yellow: #fbf0c4; --h-green: #e0eedd; --h-blue: #dcedf6; --h-purple: #ece4f4; --h-red: #fbdedd;
@@ -114,7 +114,7 @@ kbd { font-family: var(--f-mono); font-size: 11px; border: 1px solid var(--line)
 .feat .k { font-family: var(--f-mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; text-transform: uppercase; }
 
 /* Panel */
-#panel { width: var(--panel-w); flex: none; border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; position: relative; }
+#panel { width: var(--panel-w); max-width: calc(100% - 240px); flex: none; border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; position: relative; }
 .resizer { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 4; }
 .tabs { display: flex; border-bottom: 1px solid var(--line); padding: 0 8px; gap: 2px; overflow-x: auto; flex: none; }
 .tab { border: 0; background: none; padding: 11px 10px 9px; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; }
@@ -258,6 +258,8 @@ mark[data-c="default"], [data-h="default"] { background: var(--h-default); } mar
 #richbar .rb-hl { background: var(--h-yellow); border-radius: 3px; padding: 0 3px; }
 #richbar .sw-color.c-default { color: var(--c-default); } #richbar .sw-color.c-gray { color: var(--c-gray); } #richbar .sw-color.c-brown { color: var(--c-brown); } #richbar .sw-color.c-orange { color: var(--c-orange); } #richbar .sw-color.c-yellow { color: var(--c-yellow); } #richbar .sw-color.c-green { color: var(--c-green); } #richbar .sw-color.c-blue { color: var(--c-blue); } #richbar .sw-color.c-purple { color: var(--c-purple); } #richbar .sw-color.c-red { color: var(--c-red); }
 #richbar .sw-highlight.c-default { background: var(--surface); } #richbar .sw-highlight.c-gray { background: var(--h-gray); } #richbar .sw-highlight.c-brown { background: var(--h-brown); } #richbar .sw-highlight.c-orange { background: var(--h-orange); } #richbar .sw-highlight.c-yellow { background: var(--h-yellow); } #richbar .sw-highlight.c-green { background: var(--h-green); } #richbar .sw-highlight.c-blue { background: var(--h-blue); } #richbar .sw-highlight.c-purple { background: var(--h-purple); } #richbar .sw-highlight.c-red { background: var(--h-red); }
+#mathlive { position: fixed; z-index: 69; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px 10px; font-size: 16px; max-width: min(420px, calc(100vw - 16px)); overflow: hidden; }
+#mathlive.err { border-color: var(--danger); }
 #mathpop { position: fixed; z-index: 72; width: 320px; max-width: calc(100vw - 16px); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 10px; display: grid; gap: 8px; }
 #mathpop .mp-in { width: 100%; resize: vertical; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 8px; font-family: var(--f-mono); font-size: 13px; }
 #mathpop .mp-prev { min-height: 28px; text-align: center; overflow-x: auto; }
@@ -361,7 +363,7 @@ mark[data-c="default"], [data-h="default"] { background: var(--h-default); } mar
 #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 13px; z-index: 60; box-shadow: var(--shadow); max-width: calc(100vw - 32px); }
 #capHint { position: sticky; top: 46px; z-index: 6; margin: 0 auto; width: max-content; max-width: calc(100% - 32px); background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 5px 14px; font-size: 12.5px; }
 
-@media (max-width: 860px) {
+@media (max-width: 640px) {
   .viewswitch { display: inline-flex; }
   .split { position: relative; }
   #panel { position: absolute; inset: 0; width: auto; border-left: 0; }
@@ -713,7 +715,7 @@ mark[data-c="default"], [data-h="default"] { background: var(--h-default); } mar
 
   function gotoPage(i, smooth = true) {
     const P = S.pages[i]; if (!P) return;
-    if (matchMedia("(max-width:860px)").matches) setView("pdf");
+    if (matchMedia("(max-width:640px)").matches) setView("pdf");
     $("#viewer").scrollTo({ top: P.wrap.offsetTop - 12, behavior: smooth ? "smooth" : "auto" });
   }
 
@@ -764,7 +766,7 @@ mark[data-c="default"], [data-h="default"] { background: var(--h-default); } mar
   function setView(v) { $("#app").dataset.view = v; $("#vsPdf").classList.toggle("on", v === "pdf"); $("#vsPanel").classList.toggle("on", v === "panel"); }
   $("#vsPdf").onclick = () => setView("pdf");
   $("#vsPanel").onclick = () => setView("panel");
-  const revealPanel = (tab) => { showTab(tab); if (matchMedia("(max-width:860px)").matches) setView("panel"); };
+  const revealPanel = (tab) => { showTab(tab); if (matchMedia("(max-width:640px)").matches) setView("panel"); };
 
   // panel resize
   (() => {
