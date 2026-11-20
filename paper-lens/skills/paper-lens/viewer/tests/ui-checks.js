@@ -678,4 +678,35 @@
     ok(!/Serif KR|Myungjo|Batang|Georgia|Plex/i.test(ff) && /apple|system|SD Gothic/i.test(ff), ff);
     ok(!document.querySelector('link[href*="fonts.googleapis.com"]'), "no web font download");
   });
+
+  // ---- Korean IME + Enter ----
+  async function imeEnter(E, id, alsoPlainKeydown) {
+    const ed = E.blockEl(id).querySelector(".ql-editor");
+    const q = window.Quill.find(E.blockEl(id).querySelector(".nb-rich"));
+    q.setSelection(q.getLength() - 1, 0);
+    ed.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const down = new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, isComposing: true, bubbles: true, cancelable: true });
+    ed.dispatchEvent(down);
+    ed.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "음" }));
+    if (alsoPlainKeydown) ed.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    return { down, q };
+  }
+  test("ime: Enter that ends a Korean syllable makes one new block (no stray line)", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "음" });
+    await E.edit(id);
+    const { down, q } = await imeEnter(E, id, false);
+    ok(down.defaultPrevented, "the browser's own line break is prevented");
+    await waitFor(() => E.store.blocks().length === 2, 2000, "one new block");
+    eq(q.getLines().length, 1, "no extra line in the first block");
+    await waitFor(() => E.ui.editingId() && E.ui.editingId() !== id, 2000, "caret in the new block");
+  });
+  test("ime: a second plain Enter right after (Chrome on macOS) is not doubled", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "음" });
+    await E.edit(id);
+    await imeEnter(E, id, true);
+    await sleep(300);
+    eq(E.store.blocks().length, 2, "exactly one new block");
+  });
 })();

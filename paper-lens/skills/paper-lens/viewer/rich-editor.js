@@ -188,8 +188,32 @@
       delta.ops.forEach((op) => { if (op.attributes) for (const k of Object.keys(op.attributes)) if (!FORMATS.includes(k)) delete op.attributes[k]; });
       return delta;
     });
-    // Ignore Quill's key handling while an IME is composing (Enter/Esc must not act mid-syllable).
-    quill.root.addEventListener("keydown", (e) => { if (keyIsComposing(e)) e.stopImmediatePropagation(); }, true);
+    // IME (Korean): keys pressed mid-syllable must not act on the half-built text. An Enter that ends a
+    // syllable is replayed once, right after the composition commits, as a normal Enter (new block);
+    // the browser's own line break is prevented. Chrome on macOS also sends a plain Enter keydown
+    // right after: whichever arrives first runs, the other is dropped.
+    let afterComp = null; // {shift, meta, t, done}
+    const replayEnter = (p) => {
+      const ev = new KeyboardEvent("keydown", { key: "Enter", shiftKey: p.shift, metaKey: p.meta, ctrlKey: false, bubbles: true, cancelable: true });
+      ev.__plReplay = true;
+      quill.root.dispatchEvent(ev);
+    };
+    quill.root.addEventListener("keydown", (e) => {
+      if (keyIsComposing(e)) {
+        if (e.key === "Enter") { e.preventDefault(); afterComp = { shift: e.shiftKey, meta: e.metaKey || e.ctrlKey, t: 0, done: false, armed: true }; }
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (e.key === "Enter" && !e.__plReplay && afterComp && afterComp.t && Date.now() - afterComp.t < 150) {
+        if (afterComp.done) { e.preventDefault(); e.stopImmediatePropagation(); }
+        else afterComp.done = true; // the real one goes through; the replay is cancelled
+      }
+    }, true);
+    quill.root.addEventListener("compositionend", () => {
+      if (!afterComp || !afterComp.armed) return;
+      const p = afterComp; p.armed = false; p.t = Date.now();
+      setTimeout(() => { if (!p.done) { p.done = true; replayEnter(p); } }, 30);
+    });
 
     // Hide the empty-block hint the moment input starts; with an IME, Quill only learns about
     // the text at compositionend, so the hint would otherwise sit on top of the first syllables.
