@@ -299,4 +299,85 @@
     await waitFor(() => $("#toast").textContent.includes("채팅창을 열고"), 3000, "open-chat hint");
     window.__fake.canSend = "available";
   });
+
+  // ---------- rich editor (PLRich) ----------
+  function mountRich(text) {
+    const host = document.createElement("div"); host.style.cssText = "width:480px"; document.body.append(host);
+    const calls = { change: [], exit: 0, newBlock: 0, backspaceEmpty: 0, mathBelow: 0 };
+    const ed = window.PLRich.mount(host, text || "", {
+      onChange: (t) => calls.change.push(t), onExit: () => calls.exit++, onNewBlockBelow: () => calls.newBlock++,
+      onBackspaceEmpty: () => calls.backspaceEmpty++, onMathBlockBelow: () => calls.mathBelow++,
+    });
+    const q = ed.quill;
+    const typeAtEnd = (t) => { q.setSelection(q.getLength() - 1, 0, "silent"); q.insertText(q.getLength() - 1, t, "user"); q.setSelection(q.getLength() - 1, 0, "silent"); };
+    const press = (k, extra) => q.root.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...extra }));
+    return { host, ed, q, calls, typeAtEnd, press };
+  }
+
+  test("rich: cmd+B makes bold text and stores **", async () => {
+    const R = mountRich("");
+    R.q.setSelection(0, 0);
+    R.press("b", { metaKey: true, ctrlKey: false });
+    R.typeAtEnd("굵게");
+    ok(R.ed.root.querySelector("strong"), "strong in editor");
+    ok(R.ed.getText().includes("**굵게**"), R.ed.getText());
+  });
+
+  test("rich: ## + space becomes a heading", async () => {
+    const R = mountRich("");
+    R.typeAtEnd("##");
+    R.press(" ");
+    R.typeAtEnd("제목");
+    ok(R.ed.root.querySelector("h2"), "h2");
+    eq(R.ed.getText(), "## 제목");
+  });
+
+  test("rich: - and [] make lists", async () => {
+    const R = mountRich("");
+    R.typeAtEnd("-"); R.press(" "); R.typeAtEnd("항목");
+    ok(R.ed.root.querySelector('li[data-list="bullet"]'), "bullet");
+    const R2 = mountRich("");
+    R2.typeAtEnd("[]"); R2.press(" "); R2.typeAtEnd("할 일");
+    ok(R2.ed.root.querySelector('li[data-list="unchecked"]'), "checkbox");
+    eq(R2.ed.getText(), "- [ ] 할 일");
+  });
+
+  test("rich: $x^2$ turns into math after the next character, prices do not", async () => {
+    const R = mountRich("");
+    R.typeAtEnd("넓이 $x^2$"); R.typeAtEnd(" ");
+    await waitFor(() => R.ed.root.querySelector(".ql-math svg"), 15000, "math svg");
+    ok(R.ed.getText().includes("$x^2$"), R.ed.getText());
+    const R2 = mountRich("");
+    R2.typeAtEnd("가격 $5–$10 "); await sleep(50);
+    ok(!R2.ed.root.querySelector(".ql-math"), "no math for prices");
+  });
+
+  test("rich: toolbar color is stored as data-c", async () => {
+    const R = mountRich("빨강으로");
+    R.q.setSelection(0, 3, "user");
+    await waitFor(() => !$("#richbar").hidden, 3000, "toolbar");
+    $('#richbar [data-act="color"][data-v="red"]').dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    ok(R.ed.getText().includes('<span data-c="red">빨강으</span>'), R.ed.getText());
+  });
+
+  test("rich: pasted styles and fonts are dropped", async () => {
+    const R = mountRich("");
+    R.q.clipboard.dangerouslyPasteHTML(0, '<span style="color:#f00;font-family:Comic Sans MS">x</span><b>y</b>', "user");
+    const t = R.ed.getText();
+    ok(!/style|font|#f00/i.test(t), t);
+    ok(t.includes("**y**"), t);
+  });
+
+  test("rich: keys call the editor callbacks", async () => {
+    const R = mountRich("글");
+    R.q.setSelection(1, 0);
+    R.press("Enter", { metaKey: true }); eq(R.calls.newBlock, 1, "cmd+Enter");
+    R.press("Escape"); eq(R.calls.exit, 1, "Esc");
+    const E = mountRich("");
+    E.q.setSelection(0, 0); E.press("Backspace"); eq(E.calls.backspaceEmpty, 1, "Backspace on empty");
+    const M = mountRich("앞 줄");
+    M.q.insertText(M.q.getLength() - 1, "\n", "user"); M.typeAtEnd("$$"); M.press(" ");
+    eq(M.calls.mathBelow, 1, "$$ + space");
+    ok(!M.ed.getText().includes("$$"), "the $$ is removed");
+  });
 })();

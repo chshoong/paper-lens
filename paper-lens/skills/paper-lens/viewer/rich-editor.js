@@ -1,0 +1,275 @@
+// Paper Lens: the WYSIWYG editor for one note block, built on Quill 2.
+// mount(host, text, cb) shows `text` (stored Markdown) formatted, and reports edits back as Markdown.
+// cb: onChange(text), onExit(), onNewBlockBelow(), onBackspaceEmpty(), onMathBlockBelow().
+(function () {
+  "use strict";
+  if (!window.Quill) return;
+  const Quill = window.Quill;
+  const C = () => window.PLRichConvert;
+  const COLORS = ["default", "gray", "brown", "orange", "yellow", "green", "blue", "purple", "red"];
+  const COLOR_KO = { default: "기본", gray: "회색", brown: "갈색", orange: "주황", yellow: "노랑", green: "초록", blue: "파랑", purple: "보라", red: "빨강" };
+  const FORMATS = ["bold", "italic", "underline", "strike", "code", "link", "header", "list", "indent", "blockquote", "color", "highlight", "size", "mathInline"];
+
+  // ---------- registration (once) ----------
+  const Parchment = Quill.import("parchment");
+  const inline = { scope: Parchment.Scope.INLINE };
+  Quill.register({
+    "formats/color": new Parchment.Attributor("color", "data-c", { ...inline, whitelist: COLORS }),
+    "formats/highlight": new Parchment.Attributor("highlight", "data-h", { ...inline, whitelist: COLORS }),
+    "formats/size": new Parchment.Attributor("size", "data-s", { ...inline, whitelist: ["small", "large"] }),
+  }, true);
+
+  const Embed = Quill.import("blots/embed");
+  class MathInline extends Embed {
+    static create(value) {
+      const node = super.create(value);
+      node.setAttribute("data-latex", value);
+      const holder = document.createElement("span");
+      holder.className = "ql-math-r";
+      holder.textContent = value;
+      node.append(holder);
+      if (window.PLMath) window.PLMath.render(value, false).then(({ node: svg, error }) => {
+        holder.textContent = ""; holder.append(svg);
+        node.classList.toggle("ql-math-err", !!error);
+      });
+      return node;
+    }
+    static value(node) { return node.getAttribute("data-latex") || ""; }
+  }
+  MathInline.blotName = "mathInline"; MathInline.tagName = "span"; MathInline.className = "ql-math";
+  Quill.register(MathInline, true);
+
+  // ---------- shared floating UI ----------
+  let active = null; // the editor whose selection the toolbar acts on
+  let lastHighlight = "yellow";
+  const bar = document.createElement("div");
+  bar.id = "richbar"; bar.hidden = true; bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "글자 꾸미기");
+  const pop = document.createElement("div");
+  pop.id = "mathpop"; pop.hidden = true; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "수식 고치기");
+  const mountUi = () => { if (!bar.isConnected) document.body.append(bar, pop); };
+
+  function btn(label, act, v, title, extraClass) {
+    const b = document.createElement("button");
+    b.type = "button"; b.dataset.act = act; if (v != null) b.dataset.v = v;
+    b.title = title || label; b.setAttribute("aria-label", title || label);
+    b.className = "rb" + (extraClass ? " " + extraClass : "");
+    b.innerHTML = label;
+    return b;
+  }
+  function group(...kids) { const g = document.createElement("span"); g.className = "rb-g"; kids.forEach((k) => g.append(k)); return g; }
+  function menu(label, title, items) {
+    const wrap = document.createElement("span"); wrap.className = "rb-menu";
+    const open = btn(label + " ▾", "menu", null, title);
+    const list = document.createElement("span"); list.className = "rb-list"; list.hidden = true;
+    items.forEach((it) => list.append(it));
+    open.addEventListener("mousedown", (e) => { e.preventDefault(); bar.querySelectorAll(".rb-list").forEach((l) => l !== list && (l.hidden = true)); list.hidden = !list.hidden; });
+    wrap.append(open, list);
+    return wrap;
+  }
+  const swatch = (act, c) => btn(act === "color" ? "가" : "", act, c, (act === "color" ? "글자색 " : "형광펜 ") + COLOR_KO[c], "sw sw-" + act + " c-" + c);
+  bar.append(
+    group(btn("<b>B</b>", "bold", null, "굵게 (⌘B)"), btn("<i>I</i>", "italic", null, "기울임 (⌘I)"), btn("<u>U</u>", "underline", null, "밑줄 (⌘U)"), btn("<s>S</s>", "strike", null, "취소선 (⌘⇧S)"), btn("&lt;/&gt;", "code", null, "코드 (⌘E)")),
+    group(
+      menu("제목", "제목 크기", [btn("본문", "header", "0"), btn("제목 1", "header", "1"), btn("제목 2", "header", "2"), btn("제목 3", "header", "3")]),
+      menu("크기", "글자 크기", [btn("작게", "size", "small"), btn("보통", "size", ""), btn("크게", "size", "large")]),
+    ),
+    group(
+      menu("<span class='rb-a'>가</span>", "글자색", COLORS.map((c) => swatch("color", c))),
+      menu("<span class='rb-hl'>형광펜</span>", "형광펜 (⌘⇧H)", COLORS.map((c) => swatch("highlight", c))),
+    ),
+    group(btn("∑ 수식으로", "toMath", null, "고른 글자를 수식으로")),
+  );
+  bar.addEventListener("mousedown", (e) => {
+    const b = e.target.closest("button"); if (!b || !active) return;
+    e.preventDefault();
+    const act = b.dataset.act, v = b.dataset.v;
+    if (act === "menu") return;
+    active.apply(act, v);
+    bar.querySelectorAll(".rb-list").forEach((l) => (l.hidden = true));
+  });
+
+  // ---------- editor ----------
+  function mount(host, text, cb) {
+    cb = cb || {};
+    mountUi();
+    const el = document.createElement("div");
+    el.className = "nb-rich";
+    host.append(el);
+    let quill;
+    const keyIsComposing = (ev) => ev && (ev.isComposing || ev.keyCode === 229);
+    const bindings = {
+      header: { key: " ", collapsed: true, prefix: /^#{1,3}$/, format: { list: false, "code-block": false }, handler(range, ctx) {
+        const n = ctx.prefix.length;
+        quill.deleteText(range.index - n, n, "user");
+        quill.formatLine(range.index - n, 1, "header", n, "user");
+        return false;
+      } },
+      quote: { key: " ", collapsed: true, prefix: /^>$/, handler(range) {
+        quill.deleteText(range.index - 1, 1, "user");
+        quill.formatLine(range.index - 1, 1, "blockquote", true, "user");
+        return false;
+      } },
+      mathBelow: { key: " ", collapsed: true, prefix: /^\$\$$/, handler(range) {
+        quill.deleteText(range.index - 2, 2, "user");
+        // drop the now-empty line unless it is the only one
+        const [line] = quill.getLine(range.index - 2);
+        if (line && line.length() <= 1 && quill.getLength() > 1) quill.deleteText(range.index - 2 - (range.index - 2 > 0 ? 1 : 0), 1, "user");
+        cb.onMathBlockBelow && cb.onMathBlockBelow();
+        return false;
+      } },
+      strike: { key: "s", shortKey: true, shiftKey: true, handler(range, ctx) { quill.format("strike", !ctx.format.strike, "user"); return false; } },
+      code: { key: "e", shortKey: true, handler(range, ctx) { quill.format("code", !ctx.format.code, "user"); return false; } },
+      highlight: { key: "h", shortKey: true, shiftKey: true, handler(range, ctx) { quill.format("highlight", ctx.format.highlight ? false : lastHighlight, "user"); return false; } },
+      newBlock: { key: "Enter", shortKey: true, handler() { flushMath(); cb.onNewBlockBelow && cb.onNewBlockBelow(); return false; } },
+      exit: { key: "Escape", handler() { if (!pop.hidden) { closePop(false); return false; } cb.onExit && cb.onExit(); return false; } },
+      backspaceEmpty: { key: "Backspace", handler() { if (quill.getLength() <= 1) { cb.onBackspaceEmpty && cb.onBackspaceEmpty(); return false; } return true; } },
+    };
+    quill = new Quill(el, {
+      formats: FORMATS,
+      modules: { toolbar: false, keyboard: { bindings } },
+      placeholder: "글 쓰기 · ## 제목, - 목록, $x^2$ 수식, ⌘Enter 새 블록",
+    });
+    // Keep only our formats on paste (Quill already drops formats not in `formats`; colors outside the palette are dropped by the whitelist).
+    quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
+      delta.ops.forEach((op) => { if (op.attributes) for (const k of Object.keys(op.attributes)) if (!FORMATS.includes(k)) delete op.attributes[k]; });
+      return delta;
+    });
+    // Ignore Quill's key handling while an IME is composing (Enter/Esc must not act mid-syllable).
+    quill.root.addEventListener("keydown", (e) => { if (keyIsComposing(e)) e.stopImmediatePropagation(); }, true);
+
+    quill.setContents(C().mdToDelta(text), "silent");
+    let last = C().deltaToMd(quill.getContents());
+
+    // $...$ followed by a typed non-digit becomes inline math.
+    function docString() {
+      let s = "";
+      for (const op of quill.getContents().ops) s += typeof op.insert === "string" ? op.insert : "￼";
+      return s;
+    }
+    function promoteMath(includeLineEnds) {
+      const s = docString();
+      const re = includeLineEnds ? /(^|[^\\$])\$([^\s$][^$\n￼]*?[^\s\\$]|[^\s$\\])\$(?=[^\d$]|$)/gm : /(^|[^\\$])\$([^\s$][^$\n￼]*?[^\s\\$]|[^\s$\\])\$(?=[^\d$\n])/g;
+      const hits = [];
+      let m;
+      while ((m = re.exec(s))) hits.push({ at: m.index + m[1].length, len: m[2].length + 2, latex: m[2] });
+      for (const h of hits.reverse()) {
+        const fmt = quill.getFormat(h.at, 1);
+        quill.deleteText(h.at, h.len, "user");
+        quill.insertEmbed(h.at, "mathInline", h.latex, "user");
+        const keep = {}; for (const k of ["bold", "italic", "underline", "strike", "color", "highlight", "size"]) if (fmt[k]) keep[k] = fmt[k];
+        if (Object.keys(keep).length) quill.formatText(h.at, 1, keep, "user");
+        const sel = quill.getSelection();
+        if (sel && sel.index > h.at) quill.setSelection(sel.index - h.len + 1, 0, "silent");
+      }
+      return hits.length;
+    }
+    function flushMath() { promoteMath(true); }
+
+    function emit() {
+      const t = C().deltaToMd(quill.getContents());
+      if (t !== last) { last = t; cb.onChange && cb.onChange(t); }
+    }
+    let promoting = false;
+    quill.on("text-change", (delta, old, source) => {
+      if (source !== "user") return;
+      if (!promoting) { promoting = true; try { promoteMath(false); } finally { promoting = false; } }
+      emit();
+    });
+
+    // toolbar follows this editor's selection
+    function placeBar(range) {
+      if (!range || !range.length || !quill.hasFocus()) { if (active === api) bar.hidden = true; return; }
+      active = api;
+      bar.hidden = false;
+      const b = quill.getBounds(range.index, range.length);
+      const r = quill.root.getBoundingClientRect();
+      const w = bar.offsetWidth, h = bar.offsetHeight;
+      let top = r.top + b.top - h - 8;
+      if (top < 8) top = r.top + b.bottom + 8;
+      bar.style.top = top + "px";
+      bar.style.left = Math.min(Math.max(8, r.left + b.left + b.width / 2 - w / 2), window.innerWidth - w - 8) + "px";
+    }
+    quill.on("selection-change", (range, old, source) => { if (range) placeBar(range); else if (active === api) setTimeout(() => { if (!quill.hasFocus()) bar.hidden = true; }, 150); });
+    quill.on("text-change", () => { const r = quill.getSelection(); if (r && r.length) placeBar(r); });
+
+    // click a formula to edit it
+    let popAt = null;
+    quill.root.addEventListener("click", (e) => {
+      const n = e.target.closest(".ql-math");
+      if (!n) return;
+      const blot = Quill.find(n);
+      if (!blot) return;
+      openPop(quill.getIndex(blot), n.getAttribute("data-latex") || "", n);
+    });
+    function openPop(index, latex, anchor) {
+      popAt = { index, quill };
+      active = api;
+      pop.innerHTML = "";
+      const ta = document.createElement("textarea");
+      ta.className = "mp-in"; ta.value = latex; ta.rows = 2; ta.spellcheck = false;
+      ta.setAttribute("aria-label", "LaTeX 수식");
+      const prev = document.createElement("div"); prev.className = "mp-prev";
+      const hint = document.createElement("div"); hint.className = "mp-hint"; hint.textContent = "Enter 반영 · Esc 취소";
+      pop.append(ta, prev, hint);
+      const draw = () => window.PLMath && window.PLMath.render(ta.value || " ", false).then(({ node, error }) => { prev.textContent = ""; prev.append(node); if (error) { const er = document.createElement("div"); er.className = "nb-err"; er.textContent = "수식 오류: " + error; prev.append(er); } });
+      ta.addEventListener("input", draw);
+      ta.addEventListener("keydown", (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); closePop(true); }
+        else if (e.key === "Escape") { e.preventDefault(); closePop(false); }
+      });
+      pop.hidden = false;
+      const r = anchor.getBoundingClientRect();
+      pop.style.left = Math.min(Math.max(8, r.left), window.innerWidth - 340) + "px";
+      pop.style.top = Math.min(r.bottom + 8, window.innerHeight - 160) + "px";
+      draw(); ta.focus(); ta.select();
+    }
+    function closePop(commit) {
+      if (pop.hidden || !popAt || popAt.quill !== quill) return;
+      const v = pop.querySelector(".mp-in").value.trim();
+      pop.hidden = true;
+      const at = popAt.index; popAt = null;
+      if (commit) {
+        quill.deleteText(at, 1, "user");
+        if (v) quill.insertEmbed(at, "mathInline", v, "user");
+        quill.setSelection(at + (v ? 1 : 0), 0, "user");
+      } else quill.focus();
+    }
+
+    const api = {
+      root: quill.root,
+      quill,
+      getText: () => C().deltaToMd(quill.getContents()),
+      focus() { quill.focus(); quill.setSelection(quill.getLength() - 1, 0, "silent"); },
+      apply(act, v) {
+        const range = quill.getSelection(true);
+        const f = quill.getFormat(range);
+        if (["bold", "italic", "underline", "strike", "code"].includes(act)) quill.format(act, !f[act], "user");
+        else if (act === "header") quill.format("header", v === "0" ? false : +v, "user");
+        else if (act === "size") quill.format("size", v || false, "user");
+        else if (act === "color") quill.format("color", v === "default" ? false : v, "user");
+        else if (act === "highlight") { if (v === "default") quill.format("highlight", false, "user"); else { lastHighlight = v; quill.format("highlight", v, "user"); } }
+        else if (act === "toMath" && range.length) {
+          const t = quill.getText(range.index, range.length).replace(/\n/g, " ").trim();
+          quill.deleteText(range.index, range.length, "user");
+          if (t) quill.insertEmbed(range.index, "mathInline", t, "user");
+          quill.setSelection(range.index + 1, 0, "user");
+        }
+      },
+      destroy() {
+        flushMath();
+        emit();
+        if (active === api) { bar.hidden = true; pop.hidden = true; active = null; }
+        el.remove();
+      },
+    };
+    return api;
+  }
+
+  // Close menus/popover when clicking elsewhere.
+  document.addEventListener("mousedown", (e) => {
+    if (!e.target.closest("#richbar")) bar.querySelectorAll(".rb-list").forEach((l) => (l.hidden = true));
+  });
+
+  window.PLRich = { mount, COLORS, COLOR_KO, isOwnUi: (node) => !!(node && node.closest && node.closest("#richbar, #mathpop")) };
+})();
