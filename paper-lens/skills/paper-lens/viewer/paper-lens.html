@@ -25,7 +25,7 @@
   --f-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   --f-read: "Noto Serif KR", "AppleMyungjo", "Batang", Georgia, serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --panel-w: 440px;
+  --panel-w: max(440px, 45vw);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -181,6 +181,11 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .flash { position: absolute; left: 0; right: 0; background: var(--mark-soft); box-shadow: inset 3px 0 0 var(--accent); z-index: 3; pointer-events: none; animation: flash 2.4s ease-out forwards; }
 @keyframes flash { 0%, 55% { opacity: 1; } 100% { opacity: 0; } }
 
+.notes-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.save-state { font-size: 12px; color: var(--muted); }
+.save-state.local { color: var(--danger); }
+#trpop { position: fixed; z-index: 55; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px; width: min(420px, calc(100vw - 24px)); max-height: 50vh; overflow: auto; display: grid; gap: 8px; }
+.trpop-body { font-size: 14px; }
 /* Notes editor */
 .notes-ed { display: grid; gap: 2px; }
 .nb-list { display: grid; gap: 2px; }
@@ -193,7 +198,8 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .nb-body { min-width: 0; padding: 5px 6px; border-radius: 6px; cursor: text; overflow-wrap: anywhere; }
 .nb-body .md { font-size: 15px; }
 .nb-body .md p { margin: .2em 0; }
-.nb-math { overflow-x: auto; padding: 4px 0; text-align: center; }
+.nb-math { overflow-x: auto; padding: 4px 0; text-align: center; font-size: 17px; }
+.nb-preview mjx-container { font-size: 16px; }
 .nb-body mjx-container { color: var(--fg); }
 .nb-body mjx-container[display="true"] { margin: .2em 0 !important; }
 .nb-quote { margin: 0; padding: 2px 10px; border-left: 3px solid var(--mark); background: var(--mark-soft); border-radius: 0 6px 6px 0; font-family: var(--f-read); font-size: 14px; line-height: 1.65; }
@@ -312,6 +318,9 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1.5 5V2.5a1 1 0 011-1H5M11 1.5h2.5a1 1 0 011 1V5M14.5 11v2.5a1 1 0 01-1 1H11M5 14.5H2.5a1 1 0 01-1-1V11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         영역 캡처 <kbd class="hide-sm">C</kbd>
       </button>
+      <select id="lang" class="btn hide-sm" aria-label="Claude 답변 언어" title="Claude 답변 언어">
+        <option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option><option value="zh">中文</option>
+      </select>
       <button class="btn primary" id="openBtn" type="button">PDF 열기</button>
     </div>
   </header>
@@ -341,15 +350,23 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     <aside id="panel" aria-label="도우미">
       <div class="resizer" id="resizer" aria-hidden="true"></div>
       <div class="tabs" role="tablist">
-        <button class="tab" role="tab" data-tab="summary" aria-selected="true" type="button">요약</button>
+        <button class="tab" role="tab" data-tab="notes" aria-selected="true" type="button">노트<span class="badge" id="notesBadge" hidden></span></button>
         <button class="tab" role="tab" data-tab="trans" aria-selected="false" type="button">쪽별 정리</button>
-        <button class="tab" role="tab" data-tab="chat" aria-selected="false" type="button">질문<span class="badge" id="chatBadge" hidden></span></button>
+        <button class="tab" role="tab" data-tab="summary" aria-selected="false" type="button">요약</button>
         <button class="tab" role="tab" data-tab="terms" aria-selected="false" type="button">용어</button>
-        <button class="tab" role="tab" data-tab="notes" aria-selected="false" type="button">노트<span class="badge" id="notesBadge" hidden></span></button>
       </div>
 
-      <div class="tabbody" id="tab-summary">
-        <div id="aiWarn" class="notice warn" hidden>이 화면에서는 Claude를 부를 수 없어요. claude.ai나 Claude 앱에서 이 페이지를 열면 요약·번역·질문이 켜져요.</div>
+      <div class="tabbody" id="tab-notes">
+        <div class="notes-head">
+          <span class="save-state" id="saveState" aria-live="polite">불러오는 중…</span>
+          <span class="row"><button class="btn" id="copyNotes" type="button">복사</button><button class="btn" id="exportNotes" type="button">Markdown 받기</button></span>
+        </div>
+        <div id="explainLog" hidden></div>
+        <div id="notesEd"></div>
+      </div>
+
+      <div class="tabbody" id="tab-summary" hidden>
+        <div id="aiWarn" class="notice warn" hidden>이 화면에서는 Claude를 부를 수 없어요. claude.ai나 Claude 앱에서 이 페이지를 열면 요약·번역이 켜져요.</div>
         <div id="sumBody">
           <p class="muted">PDF를 열면 Claude가 자동으로 3줄 요약과 읽기 가이드를 만들어요.</p>
           <div class="sect-h">이런 것도 물어볼 수 있어요</div>
@@ -365,33 +382,10 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
         <div id="transList"><p class="muted">PDF를 열면 보고 있는 쪽을 문단별 카드로 정리해 여기 띄워요. 카드마다 '이 문단 번역'을 누르면 원문과 번역을 나란히 볼 수 있어요.</p></div>
       </div>
 
-      <div class="tabbody" id="tab-chat" hidden>
-        <div class="thread" id="thread">
-          <p class="muted" id="chatEmpty">PDF에서 문장을 드래그하거나 <kbd>C</kbd>로 영역을 캡처하면 여기서 바로 물어볼 수 있어요. 아래 입력창은 논문 전체에 대한 질문용이에요.</p>
-        </div>
-      </div>
-
       <div class="tabbody" id="tab-terms" hidden>
         <div class="row" style="margin-bottom:12px"><button class="btn primary" id="termsBtn" type="button" disabled>용어 사전 만들기</button></div>
         <div id="termsList"><p class="muted">논문에 나오는 전문 용어를 모아 뜻과 처음 등장한 페이지를 정리해요.</p></div>
       </div>
-
-      <div class="tabbody" id="tab-notes" hidden>
-        <div class="row" style="margin-bottom:12px;justify-content:space-between">
-          <span class="muted" style="font-size:13px">하이라이트와 저장한 답변</span>
-          <span class="row"><button class="btn" id="copyNotes" type="button">복사</button><button class="btn" id="exportNotes" type="button">Markdown 받기</button></span>
-        </div>
-        <div id="notesList" style="display:grid;gap:8px"><p class="muted">문장을 고르고 <b>하이라이트</b>를 누르거나, 답변 아래 <b>노트에 저장</b>을 누르면 여기 모여요.</p></div>
-      </div>
-
-      <div class="ctxchip" id="ctxchip" hidden><span id="ctxlabel"></span><button class="x" id="ctxclear" type="button" aria-label="첨부 지우기">✕</button></div>
-      <form class="panelfoot" id="askForm">
-        <textarea id="askInput" rows="1" placeholder="논문에 대해 무엇이든 물어보세요" aria-label="질문"></textarea>
-        <select id="lang" class="btn" aria-label="답변 언어" title="답변 언어">
-          <option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option><option value="zh">中文</option>
-        </select>
-        <button class="btn primary" id="askBtn" type="submit">보내기</button>
-      </form>
     </aside>
   </main>
 </div>
@@ -400,6 +394,10 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   <div class="thumb" id="selthumb" hidden><img id="selimg" alt="캡처한 영역"><span id="selmeta"></span></div>
   <div class="acts" id="selacts"></div>
   <form id="selform"><input id="selq" placeholder="이 부분에 대해 질문하기…" autocomplete="off"><button class="btn primary" type="submit">묻기</button></form>
+</div>
+<div id="trpop" hidden role="dialog" aria-label="번역">
+  <div class="trpop-body md" id="trpopBody"></div>
+  <div class="row" style="justify-content:flex-end;gap:4px"><button class="mini" type="button" id="trpopNote">노트에 넣기</button><button class="mini" type="button" id="trpopClose">닫기</button></div>
 </div>
 <div id="toast" hidden></div>
 <input type="file" id="file" accept="application/pdf,.pdf" hidden>
@@ -497,23 +495,23 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     if (f) { e.preventDefault(); openFile(f); } else if (e.dataTransfer?.files?.length) { e.preventDefault(); toast("PDF 파일만 열 수 있어요."); }
   });
 
-  async function openFile(f) { await loadPdf(new Uint8Array(await f.arrayBuffer()), f.name.replace(/\.pdf$/i, "")); }
+  async function openFile(f) { S.bundled = false; S.source = f.name; await loadPdf(new Uint8Array(await f.arrayBuffer()), f.name.replace(/\.pdf$/i, "")); }
 
   async function loadPdf(data, name) {
     if (!window.pdfjsLib) { toast("PDF 엔진을 불러오지 못했어요. 새로고침해 주세요."); return; }
     try {
       const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false, disableFontFace: false }).promise;
       S.doc && S.doc.destroy();
-      Object.assign(S, { doc, n: doc.numPages, texts: [], fullText: "", cur: 1, chat: [], summary: null, terms: null, sel: null });
+      Object.assign(S, { doc, n: doc.numPages, texts: [], fullText: "", cur: 1, summary: null, terms: null, sel: null, blocks: [] });
       S.key = "pl:" + name + ":" + data.byteLength + ":" + doc.numPages;
       S.trans = store.get(S.key + ":pages3", {});
       S.ptrans = store.get(S.key + ":ptrans", {});
       for (const k in locCache) delete locCache[k];
-      S.notes = store.get(S.key + ":notes", []);
       S.title = name;
       $("#docname").textContent = name;
       $("#empty").hidden = true; $("#pages").hidden = false;
-      resetThread(); renderNotes(); renderTrans(); renderTermsEmpty();
+      renderTrans(); renderTermsEmpty();
+      initNotes(name, data.byteLength);
       await buildPages();
       refreshButtons();
       await extractText();
@@ -667,16 +665,15 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     $("#capBtn").title = canImages ? "영역을 드래그해서 Claude에게 물어보기 (C)" : "이 화면에서는 이미지를 보낼 수 없어요";
     $("#transBtn").disabled = !has || aiDead;
     $("#termsBtn").disabled = !has || aiDead;
-    $("#askBtn").disabled = aiDead;
     if (has) $("#pageind").textContent = `${S.cur} / ${S.n}`;
     document.querySelectorAll("[data-needs-ai]").forEach((b) => (b.disabled = !has || aiDead));
   }
 
   // ---------- Tabs & view ----------
   function showTab(name) {
+    if (!document.getElementById("tab-" + name)) name = "notes";
     document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === name)));
     document.querySelectorAll(".tabbody").forEach((b) => (b.hidden = b.id !== "tab-" + name));
-    if (name === "chat") $("#chatBadge").hidden = true;
     if (name === "trans") { const b = document.querySelector(`.tpage[data-p="${S.cur}"]`); b && b.scrollIntoView({ block: "start" }); }
     try { sessionStorage.setItem("pl.tab", name); } catch {}
   }
@@ -706,7 +703,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   ];
   function presetGrid() {
     const g = $("#presetGrid"); g.textContent = "";
-    PRESETS.forEach(([label, q]) => g.append(el("button", { class: "btn", type: "button", "data-needs-ai": "", text: label, onclick: () => ask({ kind: "preset", label, question: q }) })));
+    PRESETS.forEach(([label, q]) => g.append(el("button", { class: "btn", type: "button", "data-needs-ai": "", text: label, onclick: () => chatAsk({ kind: "preset", label, question: q }, "send") })));
     refreshButtons();
   }
   presetGrid();
@@ -766,14 +763,14 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     if (s.prerequisites?.length) {
       body.append(el("div", { class: "sect-h", text: "먼저 알면 좋은 개념" }));
       const c = el("div", { class: "chips" });
-      s.prerequisites.forEach((p) => c.append(el("button", { class: "chip", type: "button", title: p.why || "", text: p.term, "data-needs-ai": "", onclick: () => ask({ kind: "preset", label: "개념: " + p.term, question: `"${p.term}" 개념을 이 논문을 읽는 데 필요한 만큼 쉽게 설명하고, 논문에서 어떻게 쓰이는지 연결해줘.` }) })));
+      s.prerequisites.forEach((p) => c.append(el("button", { class: "chip", type: "button", title: p.why || "", text: p.term, "data-needs-ai": "", onclick: () => chatAsk({ kind: "preset", label: "개념: " + p.term, question: `"${p.term}" 개념을 이 논문을 읽는 데 필요한 만큼 쉽게 설명하고, 논문에서 어떻게 쓰이는지 연결해줘.` }, "send") })));
       body.append(c);
     }
     if (s.tags?.length) { const c = el("div", { class: "chips", style: "margin-top:12px" }); s.tags.forEach((t) => c.append(el("span", { class: "chip", text: "#" + t }))); body.append(c); }
     appendPresets(body);
     body.append(el("div", { class: "row", style: "margin-top:14px" },
       el("button", { class: "mini", type: "button", text: "요약 다시 만들기", onclick: () => runSummary(true) }),
-      el("button", { class: "mini", type: "button", text: "노트에 저장", onclick: () => addNote({ page: 1, answer: summaryMarkdown(), label: "요약" }) })));
+      el("button", { class: "mini", type: "button", text: "노트에 저장", onclick: () => noteInsert({ type: "text", text: "**요약**\n\n" + summaryMarkdown() }) })));
   }
   const summaryMarkdown = () => { const s = S.summary || {}; return [`**${s.one_liner || ""}**`, "", ...(s.three_lines || []).map((t, i) => `${i + 1}. ${t}`), "", "**한계**", ...(s.limitations || []).map((t) => "- " + t)].join("\n"); };
 
@@ -853,7 +850,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     if (b) return b;
     b = el("div", { class: "tpage", "data-p": p },
       el("div", { class: "tp-h" }, el("button", { class: "pg", type: "button", text: `PAGE ${p} / ${S.n} ↗`, title: "PDF에서 이 쪽으로", onclick: () => gotoPage(p) }),
-        el("button", { class: "mini", type: "button", text: "노트에 저장", onclick: () => addNote({ page: p, answer: pageNotesMd(p), label: `${p}쪽 정리` }) })),
+        el("button", { class: "mini", type: "button", text: "노트에 저장", onclick: () => noteInsert({ type: "text", text: `**${p}쪽 정리**\n\n` + pageNotesMd(p), page: p }) })),
       el("div", { class: "pbody" }));
     const after = [...listEl.querySelectorAll(".tpage")].find((x) => +x.dataset.p > p);
     listEl.insertBefore(b, after || null);
@@ -887,7 +884,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
         trBtn.onclick = () => { trBtn.classList.add("on"); origBtn.classList.add("on"); cmp.hidden = false; translatePara(key, src, cmp, trBtn); };
         tools.append(trBtn, origBtn);
       }
-      tools.append(el("button", { class: "mini", type: "button", text: "질문하기", onclick: () => ask({ kind: "explain", text: src || norm(it.anchor), page: p }) }));
+      tools.append(el("button", { class: "mini", type: "button", text: "질문하기", onclick: () => chatAsk({ kind: "explain", page: p, selectedText: src || norm(it.anchor) }, "stage") }));
       card.append(tools, cmp);
       body.append(card);
     });
@@ -935,15 +932,18 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   }
 
   // ---------- Selection toolbar ----------
-  const SEL_ACTIONS = [
-    ["translate", "번역", true], ["explain", "설명"], ["easy", "쉽게 풀기"], ["why", "왜 중요해?"], ["highlight", "하이라이트"],
-  ];
-  const CAP_ACTIONS = [["figure", "그림·표 해석", true], ["explain", "설명"], ["translate", "번역"], ["equation", "수식 풀이"], ["save", "노트에 저장"]];
+  // [key, label, primary, needsChat]
+  const SEL_ACTIONS = [["translate", "번역", true], ["explain", "설명", false, true], ["easy", "쉽게 풀기", false, true], ["why", "왜 중요해?", false, true], ["quote", "노트에 인용"]];
+  const CAP_ACTIONS = [["latex", "LaTeX로 노트에", true], ["image", "그림을 노트에"], ["figure", "그림·표 해석", false, true]];
   let selScroll = 0;
   function showSelbar(x, y, ctx) {
     S.sel = ctx; selScroll = $("#viewer").scrollTop;
     const bar = $("#selbar"), acts = $("#selacts"); acts.textContent = "";
-    (ctx.image ? CAP_ACTIONS : SEL_ACTIONS).forEach(([k, label, main]) => acts.append(el("button", { type: "button", class: main ? "main" : "", text: label, onclick: () => selAction(k) })));
+    (ctx.image ? CAP_ACTIONS : SEL_ACTIONS).filter((a) => !a[3] || hasChat()).forEach(([k, label, main]) => {
+      if (k === "image" && !assets) return;
+      acts.append(el("button", { type: "button", class: main ? "main" : "", text: label, onclick: () => selAction(k) }));
+    });
+    $("#selform").hidden = !hasChat();
     $("#selthumb").hidden = !ctx.image;
     if (ctx.image) { $("#selimg").src = ctx.imageUrl; $("#selmeta").textContent = `${ctx.page}쪽에서 캡처`; }
     $("#selq").value = "";
@@ -987,10 +987,67 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 
   function selAction(kind, q) {
     const ctx = S.sel; hideSelbar(); if (!ctx) return;
+    const range = window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0).getBoundingClientRect() : null;
     window.getSelection()?.removeAllRanges();
-    if (kind === "highlight") { addNote({ page: ctx.page, quote: ctx.text, rects: ctx.rects, label: "하이라이트" }); toast("노트에 하이라이트했어요."); return; }
-    if (kind === "save") { addNote({ page: ctx.page, imageUrl: ctx.imageUrl, label: "캡처" }); toast("캡처를 노트에 저장했어요."); return; }
-    ask({ kind, question: q, ...ctx });
+    if (kind === "quote") { noteInsert({ type: "quote", text: ctx.text, page: ctx.page, rects: ctx.rects || null }).then(() => toast("노트에 인용했어요.")); return; }
+    if (kind === "translate") { translatePopover(ctx, range); return; }
+    if (kind === "latex") { captureToLatex(ctx); return; }
+    if (kind === "image") { captureToImage(ctx); return; }
+    const data = { kind, page: ctx.page };
+    if (ctx.text) data.selectedText = ctx.text;
+    if (ctx.assetId) data.assetId = ctx.assetId;
+    if (kind === "ask") data.question = q;
+    chatAsk(data, kind === "ask" ? "stage" : "send");
+  }
+
+  // ---------- Translate popover ----------
+  let trCtl = null, trText = "", trCtx = null;
+  function translatePopover(ctx, rect) {
+    const pop = $("#trpop"), body = $("#trpopBody");
+    trCtl?.abort(); trCtl = new AbortController(); trText = ""; trCtx = ctx;
+    body.innerHTML = '<span class="thinking"><span class="dot"></span><span>번역 중…</span></span>';
+    pop.hidden = false;
+    const r = rect || { left: window.innerWidth / 2, bottom: 80, width: 0 };
+    const w = pop.offsetWidth;
+    pop.style.left = Math.min(Math.max(12, r.left + r.width / 2 - w / 2), window.innerWidth - w - 12) + "px";
+    pop.style.top = Math.min(r.bottom + 10, window.innerHeight - 160) + "px";
+    if (!sample || aiDead) { body.textContent = "이 화면에서는 Claude를 부를 수 없어요."; return; }
+    sample(`아래 발췌(${ctx.page}쪽)를 자연스러운 ${LANGS[S.lang]}로 번역해. 번역문만 출력해.\n\n<excerpt>\n${ctx.text}\n</excerpt>`,
+      { signal: trCtl.signal, modelTier: "quick", cache: { gcTime: 86400000 }, onText: ({ text }) => { body.innerHTML = md(text); } })
+      .then(({ text }) => { trText = text; body.innerHTML = md(text); })
+      .catch((e) => { if (e.code !== "cancelled") { onFatal(e); body.textContent = errCopy(e); } });
+  }
+  $("#trpopClose").onclick = () => { trCtl?.abort(); $("#trpop").hidden = true; };
+  $("#trpopNote").onclick = () => {
+    if (!trText || !trCtx) return;
+    noteInsert({ type: "text", text: trText + `\n\n*(p.${trCtx.page} 번역)*`, page: trCtx.page }).then(() => toast("번역을 노트에 넣었어요."));
+    $("#trpop").hidden = true;
+  };
+  document.addEventListener("mousedown", (e) => { if (!$("#trpop").hidden && !e.target.closest("#trpop") && !e.target.closest("#selbar")) $("#trpop").hidden = true; });
+
+  // ---------- Capture → notes ----------
+  async function captureToLatex(ctx) {
+    if (!sample || aiDead || !canImages) { toast("이 화면에서는 수식 이미지를 읽을 수 없어요."); return; }
+    toast("수식을 LaTeX로 바꾸는 중…");
+    try {
+      const reply = await sample.json(
+        "이 이미지는 학술 논문 " + ctx.page + "쪽에서 캡처한 수식이야. 수식을 LaTeX로 정확히 옮겨. " +
+        "다른 말 없이 JSON 객체 하나만: {\"latex\": 수식 본문($ 기호 없이), \"eq\": 식 번호 숫자 문자열 또는 null}. " +
+        "여러 줄이면 aligned 환경을 써." + (ctx.text ? "\n(참고: 영역에서 뽑힌 텍스트, 깨져 있을 수 있음)\n" + ctx.text.slice(0, 600) : ""),
+        { images: [ctx.image], modelTier: "default", cache: false });
+      const r = PLCore.parseLatexReply(reply);
+      if (!r) throw { code: "invalid_json" };
+      await noteInsert({ type: "math", text: r.latex, page: ctx.page, eq: r.eq }, { focus: true });
+    } catch (e) {
+      onFatal(e);
+      toast(e.code === "invalid_json" || !e.code ? "수식을 읽지 못했어요. 영역을 수식에 맞게 다시 잡아주세요." : errCopy(e));
+    }
+  }
+  async function captureToImage(ctx) {
+    const id = ctx.assetId || (ctx.assetPromise ? await ctx.assetPromise : null);
+    if (!id) { toast("그림을 올리지 못했어요. 다시 캡처해 주세요."); return; }
+    await noteInsert({ type: "image", assetId: id, page: ctx.page });
+    toast("그림을 노트에 넣었어요.");
   }
 
   // ---------- Region capture ----------
@@ -1010,7 +1067,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
       const b = wrap.getBoundingClientRect();
       start = { x: e.clientX - b.left, y: e.clientY - b.top };
       box = el("div", { class: "capbox" }); wrap.append(box);
-      wrap.setPointerCapture(e.pointerId);
+      try { wrap.setPointerCapture(e.pointerId); } catch {}
     });
     wrap.addEventListener("pointermove", (e) => {
       if (!start) return;
@@ -1028,7 +1085,9 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
       if (!blob) { toast("이 페이지가 아직 그려지지 않았어요. 잠시 뒤 다시 해보세요."); return; }
       setCapture(false);
       const text = await textInRect(i, rect);
-      showSelbar(e.clientX, e.clientY, { image: blob, imageUrl: URL.createObjectURL(blob), page: i, text });
+      const ctx = { image: blob, imageUrl: URL.createObjectURL(blob), page: i, text };
+      if (assets) { ctx.assetPromise = assets.upload(blob).then((r) => (ctx.assetId = r.id)).catch(() => null); }
+      showSelbar(e.clientX, e.clientY, ctx);
     });
   }
   async function cropPage(i, r) {
@@ -1042,9 +1101,14 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     c.width = Math.round(r.w * k); c.height = Math.round(r.h * k);
     const ctx = c.getContext("2d");
     ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
-    try { await page.render({ canvasContext: ctx, viewport: vp, transform: [1, 0, 0, 1, -r.x * k, -r.y * k] }).promise; }
+    // intent "print" renders without requestAnimationFrame, which stalls in background or headless views.
+    try { await page.render({ canvasContext: ctx, viewport: vp, intent: "print", transform: [1, 0, 0, 1, -r.x * k, -r.y * k] }).promise; }
     catch { return null; }
-    return await new Promise((res) => c.toBlob(res, "image/png"));
+    // Synchronous encode: toBlob's callback can stall in background or headless views.
+    const bin = atob(c.toDataURL("image/png").split(",")[1]);
+    const buf = new Uint8Array(bin.length);
+    for (let k = 0; k < bin.length; k++) buf[k] = bin.charCodeAt(k);
+    return new Blob([buf], { type: "image/png" });
   }
   async function textInRect(i, r) {
     try {
@@ -1056,90 +1120,13 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     } catch { return ""; }
   }
 
-  // ---------- Chat ----------
-  const KIND = {
-    translate: { label: "번역", tier: "quick", q: (c) => `아래 발췌(${c.page}쪽)를 자연스러운 ${LANGS[S.lang]}로 번역해. 번역문만 출력하고, 꼭 필요하면 마지막에 용어 메모 1~2줄.` },
-    explain: { label: "설명", q: (c) => `아래 부분(${c.page}쪽)이 이 논문의 맥락에서 무슨 뜻인지 설명해줘. 1) 핵심 의미 2) 앞뒤 흐름에서의 역할 3) 필요한 배경 개념.` },
-    easy: { label: "쉽게 풀기", q: (c) => `아래 부분(${c.page}쪽)을 이 분야를 처음 접하는 학부생도 이해하게 비유를 섞어 아주 쉽게 풀어줘. 마지막에 한 줄 요약.` },
-    why: { label: "왜 중요해?", q: (c) => `아래 부분(${c.page}쪽)이 논문 전체 주장에서 왜 중요한지, 이게 없으면 무엇이 무너지는지 설명해줘.` },
-    figure: { label: "그림·표 해석", q: (c) => `첨부 이미지는 논문 ${c.page}쪽에서 캡처한 그림/표야. 1) 무엇을 보여주는지 한 줄 2) 읽는 법(축·범례·열·지표의 뜻, 높을수록 좋은지) 3) 핵심 결과와 눈여겨볼 수치 4) 논문의 주장과 어떻게 연결되는지 5) 해석할 때 주의할 점.` },
-    equation: { label: "수식 풀이", q: (c) => `첨부 이미지(${c.page}쪽)의 수식을 풀어줘. 1) 각 기호의 의미 표 2) 식이 직관적으로 말하는 것 3) 각 항의 역할 4) 아주 작은 숫자 예시.` },
-    ask: { label: "질문", q: (c) => c.question },
-    preset: { label: "", q: (c) => c.question },
-    free: { label: "", q: (c) => c.question },
-  };
-  let pendingCtx = null; // attached to the next free-form question
-  function resetThread() { S.chat = []; const t = $("#thread"); t.textContent = ""; t.append(el("p", { class: "muted", id: "chatEmpty", text: "PDF에서 문장을 드래그하거나 C로 영역을 캡처하면 여기서 바로 물어볼 수 있어요. 아래 입력창은 논문 전체에 대한 질문용이에요." })); }
-
-  async function ask(c) {
-    if (!sample || aiDead) { toast("Claude를 부를 수 없는 화면이에요."); return; }
-    if (!S.doc && c.kind !== "free") return;
-    revealPanel("chat");
-    $("#chatEmpty")?.remove();
-    const K = KIND[c.kind] || KIND.free;
-    const question = K.q(c);
-    // user bubble
-    const ub = el("div", { class: "bubble" });
-    const label = c.label || K.label;
-    if (label) ub.append(el("div", { class: "tag", text: label + (c.page ? ` · p.${c.page}` : "") }));
-    if (c.imageUrl) ub.append(el("img", { src: c.imageUrl, alt: `${c.page}쪽 캡처` }));
-    else if (c.text) ub.append(el("div", { class: "quote", text: c.text }));
-    if (c.kind === "ask" || c.kind === "free") ub.append(el("div", { text: c.question }));
-    const thread = $("#thread");
-    thread.append(el("div", { class: "msg user" }, ub));
-    // assistant bubble
-    const out = el("div", { class: "md" }, el("span", { class: "thinking" }, el("span", { class: "dot" }), el("span", { text: c.image ? "그림을 보는 중…" : "생각하는 중…" })));
-    const ctl = new AbortController();
-    const stop = el("button", { class: "mini", type: "button", text: "중지", onclick: () => ctl.abort() });
-    const meta = el("div", { class: "meta" }, stop);
-    const bot = el("div", { class: "msg bot" }, el("div", { class: "bubble" }, out), meta);
-    thread.append(bot);
-    bot.scrollIntoView({ block: "end", behavior: "smooth" });
-
-    let content = question;
-    if (c.text && !c.image) content += `\n\n<excerpt page="${c.page}">\n${c.text}\n</excerpt>`;
-    if (c.image && c.text) content += `\n\n(참고: 캡처 영역에서 뽑힌 텍스트)\n${c.text}`;
-    const turnText = content + (c.image ? `\n[이미지: ${c.page}쪽 캡처]` : "");
-    const history = S.chat.slice(-8);
-    const input = [{ role: "user", content: rules() }, ...history, { role: "user", content }];
-    const tier = K.tier || "default";
-    const opts = { signal: ctl.signal, cache: false, modelTier: tier, onText: ({ text }) => { out.innerHTML = md(text); } };
-    if (c.image) opts.images = [c.image];
-    try {
-      const { text, truncated } = await sample(input, opts);
-      out.innerHTML = md(text);
-      S.chat.push({ role: "user", content: turnText }, { role: "assistant", content: text });
-      meta.textContent = "";
-      if (truncated) meta.append(el("span", { class: "muted", style: "font-size:12px;margin-right:auto", text: "답이 길어 잘렸어요." }));
-      meta.append(
-        el("button", { class: "mini", type: "button", text: "복사", onclick: () => copy(text) }),
-        el("button", { class: "mini", type: "button", text: "노트에 저장", onclick: (e) => { addNote({ page: c.page, quote: c.image ? "" : c.text, imageUrl: c.imageUrl, question: c.kind === "ask" || c.kind === "free" || c.kind === "preset" ? c.question : label, answer: text, label }); e.target.textContent = "저장됨"; e.target.disabled = true; } }),
-        c.page ? el("button", { class: "mini", type: "button", text: `p.${c.page}로`, onclick: () => gotoPage(c.page) }) : null,
-      );
-      if ($("#tab-chat").hidden) { const b = $("#chatBadge"); b.hidden = false; b.textContent = "새 답"; }
-    } catch (e) {
-      meta.textContent = "";
-      if (e.code === "cancelled") { out.innerHTML = e.text ? md(e.text) : '<span class="muted">중지했어요.</span>'; return; }
-      onFatal(e);
-      out.innerHTML = e.text ? md(e.text) : "";
-      out.append(el("div", { class: "notice warn", text: errCopy(e) }));
-      if (!isFatal(e)) meta.append(el("button", { class: "mini", type: "button", text: "다시 시도", onclick: () => { bot.previousSibling.remove(); bot.remove(); ask(c); } }));
-    }
+  // ---------- Chat with Claude (the conversation beside this page) ----------
+  // Wired by bridge.js; without it the chat actions stay hidden.
+  const hasChat = () => !!(window.__bridge && /^available/.test(window.__bridge.canSend()));
+  function chatAsk(data, deliver) {
+    if (!window.__bridge) { toast("채팅 연결을 준비하는 중이에요. 잠시 뒤 다시 눌러주세요."); return; }
+    window.__bridge.send(data, deliver).then((r) => toast(r.via === "chat" ? "채팅창에 보냈어요." : "채팅에 '이거 설명해줘'라고 말하면 돼요."));
   }
-
-  // free-form questions (whole paper, or the pending capture/selection)
-  const askInput = $("#askInput");
-  askInput.addEventListener("input", () => { askInput.style.height = "auto"; askInput.style.height = Math.min(askInput.scrollHeight, 140) + "px"; });
-  askInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#askForm").requestSubmit(); } });
-  $("#askForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const q = askInput.value.trim(); if (!q) return;
-    if (!S.doc) { toast("먼저 PDF를 열어주세요."); return; }
-    askInput.value = ""; askInput.style.height = "auto";
-    const ctx = pendingCtx; pendingCtx = null; $("#ctxchip").hidden = true;
-    ask({ kind: "free", question: q, ...(ctx || {}) });
-  });
-  $("#ctxclear").onclick = () => { pendingCtx = null; $("#ctxchip").hidden = true; };
 
   // ---------- Glossary ----------
   function renderTermsEmpty() { $("#termsList").innerHTML = '<p class="muted">논문에 나오는 전문 용어를 모아 뜻과 처음 등장한 페이지를 정리해요.</p>'; }
@@ -1175,54 +1162,47 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
     listEl.append(filter, box); draw();
   }
 
-  // ---------- Notes ----------
-  function addNote(n) {
-    S.notes.push({ id: Date.now() + Math.random(), at: new Date().toISOString(), memo: "", ...n });
-    saveNotes(); renderNotes();
-    if (n.rects) drawHighlights(n.page);
-  }
-  function saveNotes() {
-    // blob: URLs do not survive reloads; keep image notes for the session only.
-    store.set(S.key + ":notes", S.notes.map(({ imageUrl, ...rest }) => rest));
-  }
-  function renderNotes() {
-    const listEl = $("#notesList"); listEl.textContent = "";
-    const b = $("#notesBadge"); b.hidden = !S.notes.length; b.textContent = S.notes.length;
-    if (!S.notes.length) { listEl.append(el("p", { class: "muted", text: "문장을 고르고 하이라이트를 누르거나, 답변 아래 노트에 저장을 누르면 여기 모여요." })); return; }
-    [...S.notes].reverse().forEach((n) => {
-      const memo = el("textarea", { placeholder: "내 메모", rows: "1", "aria-label": "메모" }); memo.value = n.memo || "";
-      memo.addEventListener("change", () => { n.memo = memo.value; saveNotes(); });
-      listEl.append(el("div", { class: "note" },
-        el("div", { class: "h" }, el("span", { text: `${n.label || "노트"} · p.${n.page ?? "-"}` }),
-          el("span", {}, el("button", { class: "mini", type: "button", text: "이동", onclick: () => gotoPage(n.page || 1) }),
-            el("button", { class: "mini", type: "button", text: "삭제", onclick: () => { S.notes = S.notes.filter((x) => x !== n); saveNotes(); renderNotes(); drawHighlights(n.page); } }))),
-        n.quote ? el("div", { class: "q", text: n.quote }) : null,
-        n.imageUrl ? el("img", { src: n.imageUrl, alt: "캡처" }) : null,
-        n.answer ? (() => { const d = el("div", { class: "md", style: "font-size:13.5px" }); d.innerHTML = md(n.answer); return d; })() : null,
-        memo));
+  // ---------- Notes (block editor on the db, or this browser when db is missing) ----------
+  let notesStore = null, notesUI = null, assets = null, notesUnsub = null;
+  (async () => { try { assets = await claude.use("assets"); } catch {} })();
+  async function initNotes(name, size) {
+    notesUnsub?.(); $("#notesEd").textContent = "";
+    // Only the paper shipped with this page uses the shared db; a dropped PDF keeps its notes in this browser.
+    const db = S.bundled ? await claude.use("db").catch(() => null) : null;
+    notesStore = PLStore.create({ db, localKey: S.key, legacyNotes: store.get(S.key + ":notes", []) });
+    notesUI = PLNotesUI.mount($("#notesEd"), notesStore, {
+      onGotoPage: (p) => gotoPage(p),
+      onAskClaude: (b) => chatAsk({ kind: "note", blockId: b.id, page: b.page ?? S.cur, selectedText: String(b.text || "").slice(0, 2000) }, "stage"),
+      assetUrl: (id) => "/_blob/" + id,
     });
+    notesUnsub = notesStore.subscribe((blocks) => {
+      const touched = new Set([...S.blocks, ...blocks].filter((b) => b.rects).map((b) => b.page));
+      S.blocks = blocks;
+      touched.forEach((p) => drawHighlights(p));
+      const b = $("#notesBadge"); b.hidden = !blocks.length; b.textContent = blocks.length;
+    });
+    updateSaveState();
+  }
+  function updateSaveState() {
+    const st = $("#saveState");
+    if (!notesStore) { st.textContent = ""; return; }
+    const local = notesStore.mode === "local";
+    st.classList.toggle("local", local);
+    st.textContent = local ? "이 기기에만 저장돼요" : notesStore.pendingIds().size ? "저장 중…" : "저장됨";
+  }
+  setInterval(updateSaveState, 800);
+  function noteInsert(partial, o) {
+    if (!notesUI) { toast("먼저 PDF를 열어주세요."); return Promise.resolve(null); }
+    showTab("notes"); // on phones the PDF stays in view; the toast says where it went
+    return notesUI.insert(partial, o);
   }
   function drawHighlights(p) {
     const P = S.pages[p]; if (!P) return;
     P.wrap.querySelectorAll(".hl").forEach((n) => n.remove());
-    S.notes.filter((n) => n.page === p && n.rects).forEach((n) => n.rects.forEach((r) =>
+    (S.blocks || []).filter((b) => b.page === p && Array.isArray(b.rects)).forEach((b) => b.rects.forEach((r) =>
       P.wrap.append(el("div", { class: "hl", style: `left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%` }))));
   }
-  const notesMarkdown = () => {
-    const lines = [`# ${S.title || "논문 노트"}`, "", `- 쪽수: ${S.n}`, `- 정리일: ${new Date().toLocaleDateString("ko-KR")}`, ""];
-    if (S.summary?.three_lines) lines.push("## 3줄 요약", ...S.summary.three_lines.map((t, i) => `${i + 1}. ${t}`), "");
-    lines.push("## 노트");
-    S.notes.forEach((n) => {
-      lines.push("", `### ${n.label || "노트"} (p.${n.page ?? "-"})`);
-      if (n.quote) lines.push("", "> " + n.quote.replace(/\n/g, "\n> "));
-      if (n.imageUrl) lines.push("", "_(캡처 이미지)_");
-      if (n.question && n.question !== n.label) lines.push("", `**Q.** ${n.question}`);
-      if (n.answer) lines.push("", n.answer);
-      if (n.memo) lines.push("", `**메모:** ${n.memo}`);
-    });
-    if (S.terms?.length) lines.push("", "## 용어", ...S.terms.map((t) => `- **${t.term}** (${t.ko || ""}): ${t.def || ""} — p.${t.page ?? "?"}`));
-    return lines.join("\n");
-  };
+  const notesMarkdown = () => PLCore.blocksToMarkdown(S.blocks || [], { title: S.title, source: S.source });
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); toast("복사했어요."); }
     catch { toast("복사가 막혀 있어요. 텍스트를 직접 선택해 주세요."); }
@@ -1245,6 +1225,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
       if (!r.ok) return;
       const buf = new Uint8Array(await r.arrayBuffer());
       if (buf.length < 100) return;
+      S.bundled = true; S.source = meta?.source || "";
       await loadPdf(buf, meta?.title || "paper");
     } catch {}
   })();

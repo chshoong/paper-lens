@@ -31,7 +31,7 @@ def main(pages):
             out = subprocess.run(
                 [CHROME, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
                  f"--user-data-dir={os.path.join(os.environ.get('TMPDIR', '/tmp'), 'pl-chrome')}",
-                 "--virtual-time-budget=90000", "--dump-dom", url],
+                 "--window-size=1400,900", "--virtual-time-budget=180000", "--dump-dom", url],
                 capture_output=True, text=True, timeout=120).stdout
             m = re.search(r'<pre id="pl-results">(.*?)</pre>', out, re.S)
             if not m:

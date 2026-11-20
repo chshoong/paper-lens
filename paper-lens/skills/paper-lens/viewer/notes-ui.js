@@ -250,6 +250,8 @@
     }
 
     document.addEventListener("click", (e) => { if (!e.target.closest(".nb-tools")) container.querySelectorAll(".nb-pop").forEach((p) => (p.hidden = true)); });
+    // Clicking anywhere outside the block being edited ends editing, even if the textarea never had focus.
+    document.addEventListener("mousedown", (e) => { if (editing && !e.target.closest('.nb[data-id="' + editing.id + '"]')) stopEdit(); });
 
     const api = {
       async insert(partial, o) {

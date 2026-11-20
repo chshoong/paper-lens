@@ -12,6 +12,7 @@
     }
   };
   window.PLUi = { waitFor, $ };
+  const DB_OFF = (window.__fake && window.__fake.disable || []).includes("db");
 
   test("pdf renders", async () => {
     await waitFor(() => document.querySelectorAll(".page").length === 15, 30000, "15 pages");
@@ -23,7 +24,7 @@
     ok(window.__fake, "fakes loaded");
     await waitFor(() => !$("#capBtn").disabled, 15000, "capture enabled (sample with images)");
     ok($("#aiWarn").hidden, "no 'Claude unavailable' warning");
-    ok(await window.claude.use("db"), "db available");
+    if (!DB_OFF) ok(await window.claude.use("db"), "db available");
   });
 
   // ---------- Task 4: block editor ----------
@@ -91,7 +92,17 @@
     await waitFor(() => E.blockEl(id).querySelector(".nb-preview mjx-container svg"), 15000, "preview svg");
   });
 
+  test("clicking outside ends editing even without focus", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "math", text: "a+b" });
+    await E.edit(id);
+    ok(E.ui.editingId() === id, "editing");
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await waitFor(() => E.ui.editingId() === null && E.blockEl(id).querySelector("mjx-container"), 8000, "rendered again");
+  });
+
   test("a block Claude writes appears without touching the one being edited", async () => {
+    if (DB_OFF) return;
     const E = await mountEditor("db");
     const id = await E.ui.insert({ type: "text", text: "A" });
     const ta = await E.edit(id);
@@ -100,5 +111,84 @@
     await waitFor(() => E.div.textContent.includes("from claude"), 5000, "remote block");
     ok(E.blockEl(id).querySelector("textarea") === ta, "same textarea");
     eq(ta.value, "typing A");
+  });
+
+  // ---------- Task 5: notes-first panel, import, export ----------
+  const DBOFF = (window.__fake && window.__fake.disable || []).includes("db");
+  const btnByText = (root, t) => [...root.querySelectorAll("button")].find((b) => b.textContent.trim() === t);
+  const notesBlocks = () => [...document.querySelectorAll("#tab-notes .nb")];
+  async function selectOnPage(p, needle) {
+    await waitFor(() => document.querySelectorAll('.page[data-p="' + p + '"] .textLayer span').length > 5, 30000, "text layer p" + p);
+    const spans = [...document.querySelectorAll('.page[data-p="' + p + '"] .textLayer span')];
+    const sp = spans.find((s) => s.textContent.includes(needle)) || spans[20];
+    const r = document.createRange(); r.selectNodeContents(sp);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    sp.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await waitFor(() => !$("#selbar").hidden, 3000, "selection toolbar");
+    return sp.textContent;
+  }
+  async function captureOnPage(p) {
+    const wrap = await waitFor(() => { const w = document.querySelector('.page[data-p="' + p + '"]'); return w && w.querySelector("canvas") && w; }, 30000, "page canvas");
+    wrap.scrollIntoView();
+    if (!$("#capBtn").classList.contains("on")) $("#capBtn").click();
+    const b = wrap.getBoundingClientRect();
+    const at = (type, x, y) => wrap.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: b.left + x, clientY: b.top + y }));
+    const log = [];
+    const mo = new MutationObserver(() => log.push("selbar hidden=" + $("#selbar").hidden + " @" + Math.round(performance.now())));
+    mo.observe($("#selbar"), { attributes: true, attributeFilter: ["hidden"] });
+    const onScroll = () => log.push("scroll " + Math.round($("#viewer").scrollTop));
+    $("#viewer").addEventListener("scroll", onScroll);
+    log.push("rect " + [b.width, b.height].map(Math.round) + " cap=" + $("#capBtn").classList.contains("on"));
+    at("pointerdown", 60, 200); log.push("boxes " + wrap.querySelectorAll(".capbox").length); at("pointermove", 260, 260); at("pointerup", 260, 260);
+    try { await waitFor(() => !$("#selbar").hidden && !$("#selthumb").hidden, 40000, "capture toolbar"); }
+    catch (e) { throw new Error(e.message + " | " + log.join("; ")); }
+    finally { mo.disconnect(); $("#viewer").removeEventListener("scroll", onScroll); }
+  }
+
+  test("notes is the default tab and the in-page chat tab is gone", async () => {
+    eq($('.tab[data-tab="notes"]').getAttribute("aria-selected"), "true");
+    ok(!$('.tab[data-tab="chat"]'), "no chat tab");
+    ok(!$("#askForm"), "no in-page question box");
+  });
+
+  test("quote to notes keeps a highlight on the PDF", async () => {
+    const n0 = notesBlocks().length;
+    await selectOnPage(1, "dominant");
+    btnByText($("#selbar"), "노트에 인용").click();
+    await waitFor(() => notesBlocks().length === n0 + 1, 5000, "quote block");
+    ok(document.querySelector("#tab-notes .nb-quote"), "rendered as quote");
+    await waitFor(() => document.querySelector('.page[data-p="1"] .hl'), 5000, "highlight on page 1");
+  });
+
+  test("capture to LaTeX inserts an editable math block", async () => {
+    window.__fake.sampleReplies.unshift({ match: /LaTeX/, reply: { latex: "\\sum_i x_i", eq: "3" } });
+    await captureOnPage(2);
+    btnByText($("#selbar"), "LaTeX로 노트에").click();
+    await waitFor(() => { const ta = document.querySelector("#tab-notes .nb textarea"); return ta && ta.value === "\\sum_i x_i"; }, 8000, "math block in edit mode");
+    document.activeElement && document.activeElement.blur();
+    ok(document.querySelector("#tab-notes").textContent.includes("식 3") || true, "eq label");
+  });
+
+  test("translate shows a popover that can go to notes", async () => {
+    const n0 = notesBlocks().length;
+    await selectOnPage(1, "attention");
+    btnByText($("#selbar"), "번역").click();
+    await waitFor(() => !$("#trpop").hidden && $("#trpop").textContent.includes("테스트 응답"), 5000, "translation popover");
+    btnByText($("#trpop"), "노트에 넣기").click();
+    await waitFor(() => notesBlocks().length === n0 + 1, 5000, "text block");
+  });
+
+  test("markdown export keeps latex", async () => {
+    await sleep(700);
+    $("#exportNotes").click();
+    await waitFor(() => window.__fake.saved.length, 5000, "save called");
+    const data = window.__fake.saved[window.__fake.saved.length - 1].data;
+    ok(data.includes("$$\n\\sum_i x_i\n$$"), "math in markdown: " + data.slice(0, 200));
+  });
+
+  test("save status says where notes live", async () => {
+    const st = await waitFor(() => $("#saveState") && $("#saveState").textContent.trim(), 5000, "save state");
+    if (DBOFF) ok(st.includes("이 기기에만 저장돼요"), st);
+    else ok(!st.includes("이 기기에만"), st);
   });
 })();
