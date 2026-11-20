@@ -100,8 +100,22 @@
         if (!String(b.text || "").trim()) { body.append(el("span", { class: "muted", text: "빈 글 (눌러서 쓰기)" })); return; }
         const md = el("div", { class: "md nb-text" });
         body.append(md);
-        PLMath.renderRich(md, b.text);
+        PLMath.renderRich(md, b.text).then(() => wireCheckboxes(b, md));
       }
+    }
+
+    // Task-list checkboxes can be ticked without opening the block: toggle the nth "- [ ]" marker.
+    function wireCheckboxes(b, md) {
+      md.querySelectorAll('input[type="checkbox"]').forEach((box, n) => {
+        box.disabled = false;
+        box.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const cur = blockById(b.id); if (!cur) return;
+          let k = -1;
+          const text = String(cur.text || "").replace(/^(\s*[-*+] \[)( |x|X)(\] )/gm, (m0, a, v, c) => (++k === n ? a + (v === " " ? "x" : " ") + c : m0));
+          store.update(b.id, { text });
+        });
+      });
     }
 
     function menuFor(b) {
@@ -196,11 +210,13 @@
       if (editing) stopEdit();
       const n = nodes.get(id), b = blockById(id);
       if (!n || !b) return;
+      if (b.type === "text" && window.PLRich && window.PLRichConvert && window.PLRichConvert.roundTrips(b.text || "")) { startRich(id, n, b); return; }
       const ta = el("textarea", { class: "nb-input", rows: "1", spellcheck: b.type === "math" ? "false" : "true", placeholder: b.type === "math" ? "LaTeX 수식 (예: \\frac{a}{b})" : "글 쓰기. 수식은 $x^2$, Enter는 새 블록" });
       ta.value = b.text || "";
       const preview = el("div", { class: "nb-preview", hidden: "" });
       n.body.textContent = "";
       n.body.className = "nb-body nb-editing nb-" + b.type;
+      if (b.type === "text") n.body.append(el("div", { class: "nb-raw-note", text: "이 블록은 원문으로 편집돼요 (표·코드처럼 꾸밈 편집기가 다루지 않는 내용이 있어요)" }));
       n.body.append(ta, preview);
       editing = { id, ta, preview };
       autosize(ta);
@@ -241,17 +257,58 @@
       ta.addEventListener("blur", () => setTimeout(() => { if (editing && editing.ta === ta && document.activeElement !== ta) stopEdit(); }, 120));
     }
 
+    function startRich(id, n, b) {
+      n.body.textContent = "";
+      n.body.className = "nb-body nb-editing nb-rich-host";
+      let rich = null;
+      const removeAndGoUp = () => {
+        const i = blocks.findIndex((x) => x.id === id);
+        const prevId = i > 0 ? blocks[i - 1].id : null;
+        if (rich) { rich.destroy(); rich = null; }
+        editing = null;
+        store.remove(id);
+        if (prevId) setTimeout(() => startEdit(prevId), 0);
+      };
+      rich = window.PLRich.mount(n.body, b.text || "", {
+        onChange: (t) => {
+          if (!rich) return; // closing after the block became a math block
+          if (rich.quill.getText().trim() === "$$") { toMath(); return; }
+          store.update(id, { text: t });
+        },
+        onExit: () => stopEdit(),
+        onNewBlockBelow: () => api.insert({ type: "text", text: "" }, { focus: true, afterId: id }),
+        onBackspaceEmpty: removeAndGoUp,
+        onMathBlockBelow: () => {
+          if (rich && !rich.getText().trim()) toMath();
+          else api.insert({ type: "math", text: "" }, { focus: true, afterId: id });
+        },
+      });
+      function toMath() {
+        const r = rich; rich = null; editing = null;
+        if (r) r.destroy();
+        store.update(id, { type: "math", text: "" });
+        setTimeout(() => startEdit(id), 0);
+      }
+      editing = { id, rich };
+      rich.focus();
+    }
+
     function stopEdit() {
       if (!editing) return;
-      const { id } = editing;
+      const { id, rich } = editing;
       editing = null;
+      if (rich) rich.destroy();
       const n = nodes.get(id), b = blockById(id);
       if (n && b) { renderBody(b, n.body); n.key = keyOf(b); }
     }
 
     document.addEventListener("click", (e) => { if (!e.target.closest(".nb-tools")) container.querySelectorAll(".nb-pop").forEach((p) => (p.hidden = true)); });
     // Clicking anywhere outside the block being edited ends editing, even if the textarea never had focus.
-    document.addEventListener("mousedown", (e) => { if (editing && !e.target.closest('.nb[data-id="' + editing.id + '"]')) stopEdit(); });
+    document.addEventListener("mousedown", (e) => {
+      if (!editing || e.target.closest('.nb[data-id="' + editing.id + '"]')) return;
+      if (window.PLRich && window.PLRich.isOwnUi(e.target)) return;
+      stopEdit();
+    });
 
     const api = {
       async insert(partial, o) {
@@ -261,6 +318,7 @@
         return id;
       },
       editingId: () => (editing ? editing.id : null),
+      editor: () => (editing && editing.rich) || null,
       edit: (id) => startEdit(id),
     };
     store.subscribe(sync);

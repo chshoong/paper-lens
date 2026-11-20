@@ -1199,6 +1199,7 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
       onAskClaude: (b) => chatAsk({ kind: "note", blockId: b.id, page: b.page ?? S.cur, selectedText: String(b.text || "").slice(0, 2000) }, "stage"),
       assetUrl: (id) => "/_blob/" + id,
     });
+    window.__notesUI = notesUI;
     notesStore.onStatus(updateSaveState);
     notesUnsub = notesStore.subscribe((blocks) => {
       const touched = new Set([...S.blocks, ...blocks].filter((b) => b.rects).map((b) => b.page));

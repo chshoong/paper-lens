@@ -71,8 +71,9 @@
   const write = (path, data) => { store.set(path, clone(data)); F.dbWrites = (F.dbWrites || 0) + 1; notify(path); };
   F.dbLatency = 0; F.failWrites = 0; F.writesIssued = 0;
   // Client-side writes go through this: count the call at once, then honour latency and injected failures.
-  const clientWrite = (fn) => {
-    F.writesIssued++;
+  F.issuedPaths = [];
+  const clientWrite = (fn, path) => {
+    F.writesIssued++; F.issuedPaths.push(path);
     return new Promise((res, rej) => setTimeout(() => {
       if (F.failWrites > 0) { F.failWrites--; rej({ code: "unavailable", message: "fake failure" }); return; }
       try { fn(); res(); } catch (e) { rej(e); }
@@ -83,9 +84,9 @@
   const docRef = (path) => ({
     id: path.split("/").pop(), path,
     get: async () => snapDoc(path),
-    set: (data) => clientWrite(() => write(path, data)),
-    update: (data) => clientWrite(() => { if (!store.has(path)) throw { code: "invalid_argument", message: "missing" }; write(path, merge(store.get(path), data)); }),
-    delete: () => clientWrite(() => { store.delete(path); notify(path); }),
+    set: (data) => clientWrite(() => write(path, data), path),
+    update: (data) => clientWrite(() => { if (!store.has(path)) throw { code: "invalid_argument", message: "missing" }; write(path, merge(store.get(path), data)); }, path),
+    delete: () => clientWrite(() => { store.delete(path); notify(path); }, path),
     onSnapshot(cb) { const l = { kind: "doc", path, cb }; listeners.add(l); setTimeout(() => cb(snapDoc(path)), 0); return () => listeners.delete(l); },
     collection: (sub) => colRef(path + "/" + sub),
   });

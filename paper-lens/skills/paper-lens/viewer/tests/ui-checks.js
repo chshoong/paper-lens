@@ -36,8 +36,12 @@
     const store = window.PLStore.create({ db: mode === "db" ? await window.claude.use("db") : null, localKey: "uit" + Math.random(), legacyNotes: [] });
     const ui = window.PLNotesUI.mount(div, store, { onGotoPage() {}, onAskClaude() {}, assetUrl: (id) => "/_blob/" + id });
     const blockEl = (id) => div.querySelector('.nb[data-id="' + id + '"]');
-    const edit = async (id) => { await waitFor(() => blockEl(id), 5000, "block " + id); blockEl(id).querySelector(".nb-body").click(); return waitFor(() => blockEl(id).querySelector("textarea"), 3000, "textarea"); };
-    const type = (ta, v) => { ta.value = v; ta.dispatchEvent(new Event("input", { bubbles: true })); };
+    // Returns the textarea (math/raw blocks) or the rich editor's .ql-editor (text blocks).
+    const edit = async (id) => { await waitFor(() => blockEl(id), 5000, "block " + id); blockEl(id).querySelector(".nb-body").click(); return waitFor(() => blockEl(id).querySelector("textarea, .ql-editor"), 3000, "editor"); };
+    const type = (ta, v) => {
+      if (ta.tagName === "TEXTAREA") { ta.value = v; ta.dispatchEvent(new Event("input", { bubbles: true })); return; }
+      const q = ui.editor().quill; q.setSelection(q.getLength() - 1, 0, "silent"); q.insertText(q.getLength() - 1, v, "user"); q.setSelection(q.getLength() - 1, 0, "silent");
+    };
     return { div, store, ui, blockEl, edit, type };
   }
   const key = (ta, k, extra) => ta.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...extra }));
@@ -63,16 +67,22 @@
     eq(ta.value, "\\frac{a");
   });
 
-  test("Enter during Korean composition does not split the block", async () => {
+  test("Korean composition: Enter, cmd+Enter and Esc do nothing mid-syllable", async () => {
     const E = await mountEditor("local");
     const id = await E.ui.insert({ type: "text", text: "가" });
-    const ta = await E.edit(id);
-    const n0 = E.store.blocks().length;
-    key(ta, "Enter", { isComposing: true });
+    const root = await E.edit(id);
+    const q = E.ui.editor().quill;
+    q.setSelection(1, 0);
+    const n0 = E.store.blocks().length, lines0 = q.getLines().length;
+    key(root, "Enter", { isComposing: true });
+    key(root, "Enter", { isComposing: true, metaKey: true });
+    key(root, "Escape", { isComposing: true });
     await sleep(100);
-    eq(E.store.blocks().length, n0, "composing Enter ignored");
-    key(ta, "Enter", { isComposing: false });
-    await waitFor(() => E.store.blocks().length === n0 + 1, 3000, "new block");
+    eq(E.store.blocks().length, n0, "no new block");
+    eq(q.getLines().length, lines0, "no new line");
+    eq(E.ui.editingId(), id, "still editing");
+    key(root, "Enter", { metaKey: true });
+    await waitFor(() => E.store.blocks().length === n0 + 1, 3000, "cmd+Enter makes a new block");
   });
 
   test("typing $$ in an empty block makes it a math block", async () => {
@@ -80,16 +90,16 @@
     const id = await E.ui.insert({ type: "text", text: "" });
     const ta = await E.edit(id);
     E.type(ta, "$$");
+    key(ta, " ");
     await waitFor(() => E.store.blocks().find((b) => b.id === id).type === "math", 3000, "type math");
   });
 
-  test("text block shows a live math preview while typing", async () => {
+  test("text block shows math while typing", async () => {
     const E = await mountEditor("local");
     const id = await E.ui.insert({ type: "text", text: "" });
     const ta = await E.edit(id);
-    E.type(ta, "넓이는 $\\pi r^2$");
-    await sleep(200);
-    await waitFor(() => E.blockEl(id).querySelector(".nb-preview mjx-container svg"), 15000, "preview svg");
+    E.type(ta, "넓이는 $\\pi r^2$ ");
+    await waitFor(() => E.blockEl(id).querySelector(".ql-editor .ql-math svg"), 15000, "math in editor");
   });
 
   test("clicking outside ends editing even without focus", async () => {
@@ -105,12 +115,12 @@
     if (DB_OFF) return;
     const E = await mountEditor("db");
     const id = await E.ui.insert({ type: "text", text: "A" });
-    const ta = await E.edit(id);
-    E.type(ta, "typing A");
+    const ed = await E.edit(id);
+    E.type(ed, " typing");
     window.__fake.db.write("blocks/zz" + Date.now(), { type: "text", text: "from claude", order: 999, by: "claude", createdAt: "x", updatedAt: "x" });
     await waitFor(() => E.div.textContent.includes("from claude"), 5000, "remote block");
-    ok(E.blockEl(id).querySelector("textarea") === ta, "same textarea");
-    eq(ta.value, "typing A");
+    ok(E.blockEl(id).querySelector(".ql-editor") === ed, "same editor element");
+    eq(E.ui.editor().getText(), "A typing");
   });
 
   // ---------- Task 5: notes-first panel, import, export ----------
@@ -255,7 +265,7 @@
     const id = await E.ui.insert({ type: "text", text: "첫 문장" });
     const ta = await E.edit(id);
     window.__fake.dbLatency = 400;
-    key(ta, "Enter", { isComposing: false });
+    key(ta, "Enter", { isComposing: false, metaKey: true });
     await sleep(60);
     const now = E.ui.editingId();
     window.__fake.dbLatency = 0;
@@ -269,8 +279,9 @@
     const id = await waitFor(() => document.querySelector("#tab-notes .nb") && document.querySelector("#tab-notes .nb").dataset.id, 5000, "a block");
     window.__fake.failWrites = 2;
     document.querySelector('#tab-notes .nb[data-id="' + id + '"] .nb-body').click();
-    const ta = await waitFor(() => document.querySelector('#tab-notes .nb[data-id="' + id + '"] textarea'), 3000, "textarea");
-    ta.value = ta.value + " 실패 테스트"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+    const ta = await waitFor(() => document.querySelector('#tab-notes .nb[data-id="' + id + '"] textarea, #tab-notes .nb[data-id="' + id + '"] .ql-editor'), 3000, "editor");
+    if (ta.tagName === "TEXTAREA") { ta.value = ta.value + " 실패 테스트"; ta.dispatchEvent(new Event("input", { bubbles: true })); }
+    else { const q = window.__notesUI.editor().quill; q.insertText(q.getLength() - 1, " 실패 테스트", "user"); }
     await waitFor(() => $("#saveState").textContent.includes("저장 실패"), 8000, "failure shown");
     window.__fake.failWrites = 0;
     $("#saveState").querySelector("button").click();
@@ -379,5 +390,47 @@
     M.q.insertText(M.q.getLength() - 1, "\n", "user"); M.typeAtEnd("$$"); M.press(" ");
     eq(M.calls.mathBelow, 1, "$$ + space");
     ok(!M.ed.getText().includes("$$"), "the $$ is removed");
+  });
+
+  // ---------- rich editor inside notes ----------
+  test("opening and closing a block without edits writes nothing", async () => {
+    if (DB_OFF) return;
+    const E = await mountEditor("db");
+    const id = await E.ui.insert({ type: "text", text: "## 제목\n\n**굵게** 그리고 $x$\n\n- 목록" });
+    await sleep(100);
+    const mine = () => window.__fake.issuedPaths.filter((p) => p === "blocks/" + id).length;
+    const before = mine();
+    await E.edit(id);
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await waitFor(() => E.ui.editingId() === null, 3000, "closed");
+    await sleep(800);
+    eq(mine(), before, "no writes to this block");
+  });
+
+  test("characters typed as text stay text after saving", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "" });
+    const ed = await E.edit(id);
+    E.type(ed, "a*b $5 <b> _x_");
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await waitFor(() => E.ui.editingId() === null && E.blockEl(id).querySelector(".nb-text"), 3000, "rendered");
+    eq(E.blockEl(id).querySelector(".nb-text").textContent.trim(), "a*b $5 <b> _x_");
+  });
+
+  test("a block with a table opens as raw text with a note", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "| a | b |\n|---|---|\n| 1 | 2 |" });
+    const ed = await E.edit(id);
+    eq(ed.tagName, "TEXTAREA");
+    ok(E.blockEl(id).querySelector(".nb-raw-note"), "raw note shown");
+  });
+
+  test("a checkbox can be ticked without opening the block", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "- [ ] 첫째\n- [ ] 둘째" });
+    const box = await waitFor(() => E.blockEl(id).querySelectorAll('.nb-text input[type="checkbox"]')[1], 3000, "checkbox");
+    box.click();
+    await waitFor(() => E.store.blocks().find((b) => b.id === id).text === "- [ ] 첫째\n- [x] 둘째", 3000, "ticked");
+    eq(E.ui.editingId(), null, "not opened");
   });
 })();
