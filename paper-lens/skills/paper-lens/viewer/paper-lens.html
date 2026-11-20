@@ -181,6 +181,45 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 .flash { position: absolute; left: 0; right: 0; background: var(--mark-soft); box-shadow: inset 3px 0 0 var(--accent); z-index: 3; pointer-events: none; animation: flash 2.4s ease-out forwards; }
 @keyframes flash { 0%, 55% { opacity: 1; } 100% { opacity: 0; } }
 
+/* Notes editor */
+.notes-ed { display: grid; gap: 2px; }
+.nb-list { display: grid; gap: 2px; }
+.nb { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: start; gap: 2px 4px; border-radius: 8px; padding: 2px 2px 2px 0; }
+.nb:hover { background: var(--bg); }
+.nb.dropover { box-shadow: inset 0 2px 0 var(--accent); }
+.nb.dragging { opacity: .4; }
+.nb-handle { cursor: grab; color: var(--muted); font-size: 11px; line-height: 1; padding-top: 9px; text-align: center; opacity: 0; user-select: none; letter-spacing: -2px; }
+.nb:hover .nb-handle, .nb:focus-within .nb-handle { opacity: .7; }
+.nb-body { min-width: 0; padding: 5px 6px; border-radius: 6px; cursor: text; overflow-wrap: anywhere; }
+.nb-body .md { font-size: 15px; }
+.nb-body .md p { margin: .2em 0; }
+.nb-math { overflow-x: auto; padding: 4px 0; text-align: center; }
+.nb-body mjx-container { color: var(--fg); }
+.nb-body mjx-container[display="true"] { margin: .2em 0 !important; }
+.nb-quote { margin: 0; padding: 2px 10px; border-left: 3px solid var(--mark); background: var(--mark-soft); border-radius: 0 6px 6px 0; font-family: var(--f-read); font-size: 14px; line-height: 1.65; }
+.nb-quote p { margin: .2em 0; }
+.nb-body img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); }
+.nb-cap { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.nb-src { border: 0; background: none; padding: 2px 0 0; font-family: var(--f-mono); font-size: 11px; color: var(--accent); cursor: pointer; }
+.nb-err { color: var(--danger); font-size: 12px; margin-top: 4px; }
+.nb-err-math { outline: 1px dashed var(--danger); outline-offset: 2px; }
+.nb-by { grid-column: 2; justify-self: start; font-size: 10.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 0 5px; margin-left: 6px; }
+.nb-tools { position: relative; grid-column: 3; grid-row: 1; }
+.nb-menu { border: 0; background: none; color: var(--muted); padding: 4px 6px; border-radius: 6px; opacity: 0; font-size: 14px; line-height: 1; }
+.nb:hover .nb-menu, .nb-menu:focus-visible { opacity: 1; }
+.nb-menu:hover { background: var(--accent-soft); color: var(--accent); }
+.nb-pop { position: absolute; right: 0; top: 100%; z-index: 20; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; display: grid; min-width: 140px; }
+.nb-pop button { border: 0; background: none; text-align: left; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+.nb-pop button:hover { background: var(--accent-soft); color: var(--accent); }
+.nb-editing { cursor: auto; background: var(--surface); box-shadow: 0 0 0 1px var(--accent); }
+.nb-input { width: 100%; border: 0; outline: 0; resize: none; background: transparent; font-size: 14.5px; line-height: 1.6; padding: 0; }
+.nb-editing.nb-math .nb-input { font-family: var(--f-mono); font-size: 13px; }
+.nb-preview { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; overflow-x: auto; }
+.nb-preview .md { font-size: 14.5px; }
+.nb-empty { color: var(--muted); font-size: 13px; padding: 8px 6px; display: grid; gap: 4px; }
+.nb-empty p { margin: 0; }
+.nb-add { display: flex; gap: 4px; padding: 6px 0 2px 18px; }
+
 /* Markdown output */
 .md { font-family: var(--f-read); font-size: 15px; line-height: 1.75; overflow-wrap: anywhere; }
 .md > :first-child { margin-top: 0; }
@@ -365,6 +404,8 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 <div id="toast" hidden></div>
 <input type="file" id="file" accept="application/pdf,.pdf" hidden>
 
+<script>window.MathJax = { tex: { inlineMath: [["$", "$"], ["\\(", "\\)"]], displayMath: [["$$", "$$"]] }, svg: { fontCache: "global" }, startup: { typeset: false } };</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg-full.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
