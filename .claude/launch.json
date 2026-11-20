@@ -1,0 +1,1 @@
+{"version":"0.0.1","configurations":[{"name":"viewer-dev","runtimeExecutable":"python3","runtimeArgs":["-m","http.server","8765","--directory","paper-lens/skills/paper-lens/viewer"],"port":8765}]}

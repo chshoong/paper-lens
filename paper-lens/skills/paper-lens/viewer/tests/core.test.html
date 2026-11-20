@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><title>core tests</title></head><body>
+<script src="harness.js"></script>
+<script src="../notes-core.js"></script>
+<script>
+const { test, eq, ok } = PLTest;
+const C = () => window.PLCore;
+
+test("orderBetween", () => {
+  eq(C().orderBetween(null, null), 1);
+  eq(C().orderBetween(null, 3), 2);
+  eq(C().orderBetween(3, null), 4);
+  eq(C().orderBetween(1, 2), 1.5);
+});
+test("splitMath inline", () => {
+  eq(C().splitMath("a $x^2$ b"), [{ kind: "text", value: "a " }, { kind: "inline", value: "x^2" }, { kind: "text", value: " b" }]);
+});
+test("splitMath display", () => {
+  eq(C().splitMath("$$\\frac{a}{b}$$"), [{ kind: "display", value: "\\frac{a}{b}" }]);
+});
+test("splitMath unmatched dollar stays text", () => {
+  eq(C().splitMath("가격은 $5 입니다"), [{ kind: "text", value: "가격은 $5 입니다" }]);
+});
+test("splitMath escaped dollars", () => {
+  eq(C().splitMath("\\$5 and \\$6"), [{ kind: "text", value: "$5 and $6" }]);
+});
+test("splitMath spaced dollars are not math", () => {
+  eq(C().splitMath("$ x $"), [{ kind: "text", value: "$ x $" }]);
+});
+test("blocksToMarkdown orders and formats", () => {
+  const md = C().blocksToMarkdown([
+    { type: "image", page: 4, order: 4 },
+    { type: "text", text: "본문", order: 1 },
+    { type: "quote", text: "인용문", page: 2, order: 3 },
+    { type: "math", text: "a+b", page: 3, eq: "1", order: 2 },
+  ], { title: "제목" });
+  ok(md.startsWith("# 제목"), "title");
+  ok(md.includes("$$\na+b\n$$\n*(p.3, 식 1)*"), "math");
+  ok(md.includes("> 인용문\n> — p.2"), "quote");
+  ok(md.includes("*(그림: p.4 캡처)*"), "image");
+  ok(md.indexOf("본문") < md.indexOf("a+b") && md.indexOf("a+b") < md.indexOf("인용문") && md.indexOf("인용문") < md.indexOf("그림"), "order");
+});
+test("migrateLegacyNotes", () => {
+  const rects = [{ x: 0.1, y: 0.2, w: 0.3, h: 0.01 }];
+  const out = C().migrateLegacyNotes([
+    { page: 2, quote: "hi", rects, label: "하이라이트" },
+    { page: 3, answer: "답", label: "설명", memo: "내 생각" },
+    { page: 4, imageUrl: "blob:x", label: "캡처" },
+  ], "2026-11-20T00:00:00Z");
+  eq(out.length, 2);
+  eq([out[0].type, out[0].text, out[0].page, out[0].rects, out[0].order, out[0].by], ["quote", "hi", 2, rects, 1, "me"]);
+  eq([out[1].type, out[1].text, out[1].order], ["text", "**설명** (p.3)\n\n답\n\n메모: 내 생각", 2]);
+});
+test("parseLatexReply", () => {
+  eq(C().parseLatexReply({ latex: "a+b", eq: "(2)" }), { latex: "a+b", eq: "2" });
+  eq(C().parseLatexReply("```latex\n$$a+b$$\n```"), { latex: "a+b", eq: null });
+  eq(C().parseLatexReply({}), null);
+});
+test("toClaudePayload fits 4000 bytes and strips format chars", () => {
+  const p = C().toClaudePayload({ selectedText: "가".repeat(5000), page: 3, note: "a​b­c" });
+  ok(new TextEncoder().encode(JSON.stringify(p)).length <= 4000, "size");
+  eq(p.page, 3);
+  eq(p.note, "abc");
+});
+test("sectionForPage", () => {
+  const o = { sections: [{ id: "s1", page: 1 }, { id: "s2", page: 3 }] };
+  eq(C().sectionForPage(o, 4).id, "s2");
+  eq(C().sectionForPage(o, 0), null);
+  eq(C().sectionForPage(null, 2), null);
+});
+</script></body></html>
