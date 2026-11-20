@@ -1,5 +1,5 @@
-// Paper Lens: block note editor with LaTeX (MathJax SVG). Click a block to edit its source,
-// click away to see it rendered. Text blocks take Markdown with $inline$ / $$display$$ math.
+// Paper Lens: block notes. Text blocks are always-on rich editors (one continuous, Notion-like page);
+// math blocks and Markdown the rich editor cannot hold (tables, code) are edited as raw text.
 (function () {
   "use strict";
 
@@ -68,85 +68,83 @@
     container.classList.add("notes-ed");
     const listEl = el("div", { class: "nb-list" });
     const empty = el("div", { class: "nb-empty", hidden: "" },
-      el("p", { text: "여기에 직접 정리해 보세요. 글에는 $x^2$처럼, 따로 둘 수식은 $$ 로 시작하면 돼요." }),
-      el("p", { class: "muted", text: "PDF에서 문장을 드래그해 '노트에 인용'하거나, 수식을 캡처해 'LaTeX로 노트에'로 가져올 수도 있어요." }));
-    const addBar = el("div", { class: "nb-add" },
-      el("button", { type: "button", class: "mini", text: "＋ 글", onclick: () => api.insert({ type: "text", text: "" }, { focus: true }) }),
-      el("button", { type: "button", class: "mini", text: "＋ 수식", onclick: () => api.insert({ type: "math", text: "" }, { focus: true }) }));
-    container.append(empty, listEl, addBar);
+      el("p", { text: "여기를 눌러 바로 써보세요." }),
+      el("p", { class: "muted", text: "## 제목, - 목록, [] 체크박스, $x^2$ 수식 · PDF에서 문장을 골라 '노트에 인용'하거나 수식을 캡처해 넣을 수도 있어요." }));
+    container.append(empty, listEl);
 
     let blocks = [];
-    let editing = null;          // {id, ta, preview}
-    const nodes = new Map();     // id -> {root, body, key}
+    let editing = null;          // {id, rich} for the focused rich block, {id, ta, preview} for a raw/math block
+    const nodes = new Map();     // id -> {root, body, key, rich}
     const previewTimers = new Map();
-    let focusWanted = null;
+    let focusWanted = null;      // {id, at}
 
     const blockById = (id) => blocks.find((b) => b.id === id);
     const keyOf = (b) => [b.type, b.text, b.page, b.eq, b.assetId, b.by].join("\u0001");
+    const C = () => window.PLRichConvert;
+    const canRich = (b) => b.type === "text" && !!window.PLRich && !!C() && C().roundTrips(b.text || "");
+    const indexOf = (id) => blocks.findIndex((x) => x.id === id);
 
+    function srcLink(b, label) {
+      return el("button", { type: "button", class: "nb-src", text: label, onclick: (e) => { e.stopPropagation(); opts.onGotoPage && opts.onGotoPage(b.page); } });
+    }
     function renderBody(b, body) {
       body.textContent = "";
       body.className = "nb-body nb-" + b.type;
       if (b.type === "math") {
-        if (!String(b.text || "").trim()) { body.append(el("span", { class: "muted", text: "빈 수식 (눌러서 LaTeX 입력)" })); return; }
+        if (!String(b.text || "").trim()) { body.append(el("span", { class: "muted", text: "빈 수식 · 눌러서 LaTeX 입력" })); return; }
         const wrap = el("div", { class: "nb-math" });
         body.append(wrap);
         PLMath.render(b.text, true).then(({ node, error }) => {
           wrap.append(node);
           if (error) body.append(el("div", { class: "nb-err", text: "수식 오류: " + error }));
         });
-        if (b.page != null) body.append(el("button", { type: "button", class: "nb-src", text: "p." + b.page + (b.eq ? " · 식 " + b.eq : ""), onclick: (e) => { e.stopPropagation(); opts.onGotoPage && opts.onGotoPage(b.page); } }));
+        if (b.page != null) body.append(srcLink(b, "p." + b.page + (b.eq ? " · 식 " + b.eq : "")));
       } else if (b.type === "quote") {
         const q = el("blockquote", { class: "nb-quote" });
         body.append(q);
         PLMath.renderRich(q, b.text || "");
-        if (b.page != null) body.append(el("button", { type: "button", class: "nb-src", text: "p." + b.page + " ↗", onclick: (e) => { e.stopPropagation(); opts.onGotoPage && opts.onGotoPage(b.page); } }));
+        if (b.page != null) body.append(srcLink(b, "p." + b.page));
       } else if (b.type === "image") {
         if (b.assetId) body.append(el("img", { src: opts.assetUrl ? opts.assetUrl(b.assetId) : "/_blob/" + b.assetId, alt: "p." + (b.page ?? "?") + " 캡처" }));
         if (b.text) { const cap = el("div", { class: "nb-cap" }); body.append(cap); PLMath.renderRich(cap, b.text); }
-        if (b.page != null) body.append(el("button", { type: "button", class: "nb-src", text: "p." + b.page + " ↗", onclick: (e) => { e.stopPropagation(); opts.onGotoPage && opts.onGotoPage(b.page); } }));
+        if (b.page != null) body.append(srcLink(b, "p." + b.page));
       } else {
-        if (!String(b.text || "").trim()) { body.append(el("span", { class: "muted", text: "빈 글 (눌러서 쓰기)" })); return; }
+        // Raw-markdown text (tables, code...) that the rich editor cannot hold.
         const md = el("div", { class: "md nb-text" });
         body.append(md);
-        PLMath.renderRich(md, b.text).then(() => wireCheckboxes(b, md));
+        PLMath.renderRich(md, b.text || "");
       }
-    }
-
-    // Task-list checkboxes can be ticked without opening the block: toggle the nth "- [ ]" marker.
-    function wireCheckboxes(b, md) {
-      md.querySelectorAll('input[type="checkbox"]').forEach((box, n) => {
-        box.disabled = false;
-        box.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const cur = blockById(b.id); if (!cur) return;
-          let k = -1;
-          const text = String(cur.text || "").replace(/^(\s*[-*+] \[)( |x|X)(\] )/gm, (m0, a, v, c) => (++k === n ? a + (v === " " ? "x" : " ") + c : m0));
-          store.update(b.id, { text });
-        });
-      });
     }
 
     function menuFor(b) {
       const pop = el("div", { class: "nb-pop", hidden: "" });
       const item = (label, fn) => pop.append(el("button", { type: "button", text: label, onclick: (e) => { e.stopPropagation(); pop.hidden = true; fn(); } }));
-      const idx = () => blocks.findIndex((x) => x.id === b.id);
-      item("위로", () => { const i = idx(); if (i > 0) store.move(b.id, { before: blocks[i - 1].id }); });
-      item("아래로", () => { const i = idx(); if (i >= 0 && i + 1 < blocks.length) store.move(b.id, { after: blocks[i + 1].id }); });
-      if (b.type === "text" || b.type === "math") item(b.type === "text" ? "수식 블록으로" : "글 블록으로", () => store.update(b.id, { type: b.type === "text" ? "math" : "text" }));
+      item("위로 옮기기", () => { const i = indexOf(b.id); if (i > 0) store.move(b.id, { before: blocks[i - 1].id }); });
+      item("아래로 옮기기", () => { const i = indexOf(b.id); if (i >= 0 && i + 1 < blocks.length) store.move(b.id, { after: blocks[i + 1].id }); });
+      if (b.type === "text" || b.type === "math") item(b.type === "text" ? "수식 블록으로 바꾸기" : "글 블록으로 바꾸기", () => store.update(b.id, { type: b.type === "text" ? "math" : "text" }));
       if (opts.onAskClaude && window.PLBridge) item("Claude에게 묻기", () => opts.onAskClaude(blockById(b.id) || b));
-      item("지우기", () => store.remove(b.id));
-      const btn = el("button", { type: "button", class: "nb-menu", title: "블록 메뉴", "aria-label": "블록 메뉴", text: "⋯", onclick: (e) => { e.stopPropagation(); container.querySelectorAll(".nb-pop").forEach((p) => p !== pop && (p.hidden = true)); pop.hidden = !pop.hidden; } });
-      return el("div", { class: "nb-tools" }, btn, pop);
+      item("삭제", () => store.remove(b.id));
+      return pop;
     }
 
     function buildNode(b) {
       const body = el("div", { class: "nb-body" });
-      const handle = el("span", { class: "nb-handle", title: "끌어서 순서 바꾸기", draggable: "true", text: "⋮⋮" });
-      const root = el("div", { class: "nb", "data-id": b.id }, handle, body);
-      if (b.by === "claude") root.append(el("span", { class: "nb-by", text: "Claude" }));
-      root.append(menuFor(b));
-      body.addEventListener("click", (e) => { if (e.target.closest("a,button")) return; startEdit(b.id); });
+      const pop = menuFor(b);
+      const handle = el("button", { type: "button", class: "nb-handle", title: "끌어서 옮기기 · 눌러서 메뉴", "aria-label": "블록 메뉴", draggable: "true" });
+      handle.innerHTML = '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>';
+      const tools = el("div", { class: "nb-tools" }, handle, pop);
+      const root = el("div", { class: "nb", "data-id": b.id }, tools, body);
+      handle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        container.querySelectorAll(".nb-pop").forEach((p) => p !== tools.querySelector(".nb-pop") && (p.hidden = true));
+        const p = tools.querySelector(".nb-pop"); p.hidden = !p.hidden;
+      });
+      body.addEventListener("click", (e) => {
+        if (e.target.closest("a,button")) return;
+        const n = nodes.get(b.id);
+        if (n && n.rich) { if (!e.target.closest(".ql-editor")) n.rich.focus("end"); else editing = { id: b.id, rich: n.rich }; return; }
+        startEdit(b.id);
+      });
       handle.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", b.id); root.classList.add("dragging"); });
       handle.addEventListener("dragend", () => root.classList.remove("dragging"));
       root.addEventListener("dragover", (e) => { e.preventDefault(); root.classList.add("dropover"); });
@@ -158,7 +156,67 @@
         const r = root.getBoundingClientRect();
         store.move(from, e.clientY < r.top + r.height / 2 ? { before: b.id } : { after: b.id });
       });
-      return { root, body, key: null };
+      return { root, body, key: null, rich: null };
+    }
+
+    // ----- rich (always-on) text blocks -----
+    function mountRich(id, n, text) {
+      n.body.textContent = "";
+      n.body.className = "nb-body nb-rich-host";
+      const rich = window.PLRich.mount(n.body, text, {
+        onChange: (t) => {
+          if (rich.quill.getText().trim() === "$$") { toMath(id); return; }
+          store.update(id, { text: t });
+        },
+        onFocus: () => { if (editing && editing.id !== id && !editing.rich) stopEdit(); editing = { id, rich }; },
+        // Selection events can arrive late (e.g. after a merge moved focus); only clear if focus really left.
+        onBlur: () => setTimeout(() => { if (editing && editing.id === id && editing.rich === rich && !rich.hasFocus()) editing = null; }, 0),
+        onExit: () => rich.blur(),
+        onNewBlockBelow: () => api.insert({ type: "text", text: "" }, { focus: "start", afterId: id }),
+        onSplit: (rest) => api.insert({ type: "text", text: rest }, { focus: "start", afterId: id }),
+        onBackspaceEmpty: () => removeAndGoUp(id),
+        onBackspaceAtStart: (md) => mergeUp(id, md),
+        onArrowOut: (dir) => moveFocus(id, dir),
+        onMathBlockBelow: () => {
+          if (!rich.getText().trim()) toMath(id);
+          else api.insert({ type: "math", text: "" }, { focus: true, afterId: id });
+        },
+      });
+      n.rich = rich;
+    }
+    function dropRich(n) { if (n.rich) { const r = n.rich; n.rich = null; if (editing && editing.rich === r) editing = null; r.destroy(); } }
+    function toMath(id) {
+      const n = nodes.get(id);
+      if (n) dropRich(n);
+      store.update(id, { type: "math", text: "" });
+      setTimeout(() => startEdit(id), 0);
+    }
+    function focusBlock(id, at) {
+      const n = nodes.get(id), b = blockById(id);
+      if (!n || !b) return;
+      if (n.rich) { n.rich.focus(at); editing = { id, rich: n.rich }; }
+      else startEdit(id);
+    }
+    function moveFocus(id, dir) {
+      const i = indexOf(id), t = blocks[dir === "up" ? i - 1 : i + 1];
+      if (t) focusBlock(t.id, dir === "up" ? "end" : "start");
+    }
+    function removeAndGoUp(id) {
+      const i = indexOf(id), prev = i > 0 ? blocks[i - 1] : null;
+      store.remove(id);
+      if (prev) setTimeout(() => focusBlock(prev.id, "end"), 0);
+    }
+    function mergeUp(id, md) {
+      const i = indexOf(id), prev = i > 0 ? blocks[i - 1] : null;
+      if (!prev) return;
+      if (prev.type === "text" && C().roundTrips(prev.text || "")) {
+        const pn = nodes.get(prev.id);
+        const { text, at } = C().mergeMd(prev.text || "", md);
+        if (pn && pn.rich) pn.rich.setText(text);
+        store.update(prev.id, { text });
+        store.remove(id);
+        setTimeout(() => focusBlock(prev.id, at), 0);
+      } else if (!md.trim()) removeAndGoUp(id);
     }
 
     function sync(list) {
@@ -172,23 +230,31 @@
         if (!n) { n = buildNode(b); nodes.set(b.id, n); }
         const isEditing = editing && editing.id === b.id;
         const k = keyOf(b);
-        if (!isEditing && n.key !== k) {
-          // Rebuild tools when type/by changed so the menu matches.
-          n.root.querySelector(".nb-tools").replaceWith(menuFor(b));
-          n.root.querySelector(".nb-by")?.remove();
-          if (b.by === "claude") n.root.insertBefore(el("span", { class: "nb-by", text: "Claude" }), n.root.querySelector(".nb-tools"));
-          renderBody(b, n.body);
-          n.key = k;
+        if (n.key !== k) {
+          const pop = n.root.querySelector(".nb-pop");
+          if (pop) pop.replaceWith(menuFor(b));
+          n.root.classList.toggle("nb-claude", b.by === "claude");
+        }
+        if (canRich(b)) {
+          if (!n.rich) { mountRich(b.id, n, b.text || ""); n.key = k; }
+          else if (n.key !== k && !isEditing) {
+            if (n.rich.getText() !== C().normalize(b.text || "")) n.rich.setText(b.text || "");
+            n.key = k;
+          } else if (n.key !== k) n.key = k;
+        } else {
+          if (n.rich && !isEditing) dropRich(n);
+          if (!n.rich && !isEditing && n.key !== k) { renderBody(b, n.body); n.key = k; }
         }
         n.root.classList.toggle("nb-is-math", b.type === "math");
         const want = prev ? prev.nextSibling : listEl.firstChild;
         if (want !== n.root) listEl.insertBefore(n.root, want);
         prev = n.root;
       }
-      for (const [id, n] of nodes) if (!seen.has(id)) { if (editing && editing.id === id) editing = null; n.root.remove(); nodes.delete(id); }
-      if (focusWanted && nodes.has(focusWanted)) { const id = focusWanted; focusWanted = null; startEdit(id); }
+      for (const [id, n] of nodes) if (!seen.has(id)) { dropRich(n); if (editing && editing.id === id) editing = null; n.root.remove(); nodes.delete(id); }
+      if (focusWanted && nodes.has(focusWanted.id)) { const f = focusWanted; focusWanted = null; focusBlock(f.id, f.at); }
     }
 
+    // ----- raw textarea editing (math blocks, unsupported markdown) -----
     function schedulePreview(id, ta, preview) {
       clearTimeout(previewTimers.get(id));
       previewTimers.set(id, setTimeout(() => {
@@ -206,33 +272,29 @@
           preview.hidden = false;
           const tmp = el("div", { class: "md" });
           PLMath.renderRich(tmp, v).then(() => { if (ta.value !== v) return; preview.textContent = ""; preview.append(tmp); });
-        } else {
-          preview.hidden = true;
-        }
+        } else preview.hidden = true;
       }, 150));
     }
-
     function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 420) + "px"; }
 
-    function startEdit(id) {
-      if (editing && editing.id === id) { if (editing.rich) editing.rich.quill.focus(); else editing.ta.focus(); return; }
-      if (editing) stopEdit();
+    function startEdit(id, at) {
       const n = nodes.get(id), b = blockById(id);
       if (!n || !b) return;
-      if (b.type === "text" && window.PLRich && window.PLRichConvert && window.PLRichConvert.roundTrips(b.text || "")) { startRich(id, n, b); return; }
-      const ta = el("textarea", { class: "nb-input", rows: "1", spellcheck: b.type === "math" ? "false" : "true", placeholder: b.type === "math" ? "LaTeX 수식 (예: \\frac{a}{b})" : "글 쓰기. 수식은 $x^2$, Enter는 새 블록" });
+      if (n.rich) { focusBlock(id, at || "end"); return; }
+      if (editing && editing.id === id) { if (editing.ta) editing.ta.focus(); return; }
+      if (editing) stopEdit();
+      const ta = el("textarea", { class: "nb-input", rows: "1", spellcheck: b.type === "math" ? "false" : "true", placeholder: b.type === "math" ? "LaTeX 수식 (예: \\frac{a}{b})" : "" });
       ta.value = b.text || "";
       const preview = el("div", { class: "nb-preview", hidden: "" });
       n.body.textContent = "";
       n.body.className = "nb-body nb-editing nb-" + b.type;
-      if (b.type === "text") n.body.append(el("div", { class: "nb-raw-note", text: "이 블록은 원문으로 편집돼요 (표·코드처럼 꾸밈 편집기가 다루지 않는 내용이 있어요)" }));
+      if (b.type === "text") n.body.append(el("div", { class: "nb-raw-note", text: "표·코드가 있어 원문으로 편집해요" }));
       n.body.append(ta, preview);
       editing = { id, ta, preview };
       autosize(ta);
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
       if (ta.value) schedulePreview(id, ta, preview);
-
       ta.addEventListener("input", () => {
         autosize(ta);
         const cur = blockById(id);
@@ -249,70 +311,34 @@
       });
       ta.addEventListener("keydown", (e) => {
         if (e.isComposing || e.keyCode === 229) return;
-        if (e.key === "Enter" && !e.shiftKey) {
+        if (e.key === "Enter" && !e.shiftKey && (b.type === "math" || e.metaKey || e.ctrlKey)) {
           e.preventDefault();
-          api.insert({ type: "text", text: "" }, { focus: true, afterId: id });
+          api.insert({ type: "text", text: "" }, { focus: "start", afterId: id });
         } else if (e.key === "Backspace" && ta.value === "") {
           e.preventDefault();
-          const i = blocks.findIndex((x) => x.id === id);
-          const prevId = i > 0 ? blocks[i - 1].id : null;
           editing = null;
-          store.remove(id);
-          if (prevId) setTimeout(() => startEdit(prevId), 0);
-        } else if (e.key === "Escape") {
-          ta.blur();
-        }
+          removeAndGoUp(id);
+        } else if (e.key === "Escape") ta.blur();
+        else if (e.key === "ArrowUp" && ta.selectionStart === 0) { e.preventDefault(); stopEdit(); moveFocus(id, "up"); }
+        else if (e.key === "ArrowDown" && ta.selectionEnd === ta.value.length) { e.preventDefault(); stopEdit(); moveFocus(id, "down"); }
       });
       ta.addEventListener("blur", () => setTimeout(() => { if (editing && editing.ta === ta && document.activeElement !== ta) stopEdit(); }, 120));
-    }
-
-    function startRich(id, n, b) {
-      n.body.textContent = "";
-      n.body.className = "nb-body nb-editing nb-rich-host";
-      let rich = null;
-      const removeAndGoUp = () => {
-        const i = blocks.findIndex((x) => x.id === id);
-        const prevId = i > 0 ? blocks[i - 1].id : null;
-        if (rich) { rich.destroy(); rich = null; }
-        editing = null;
-        store.remove(id);
-        if (prevId) setTimeout(() => startEdit(prevId), 0);
-      };
-      rich = window.PLRich.mount(n.body, b.text || "", {
-        onChange: (t) => {
-          if (!rich) return; // closing after the block became a math block
-          if (rich.quill.getText().trim() === "$$") { toMath(); return; }
-          store.update(id, { text: t });
-        },
-        onExit: () => stopEdit(),
-        onNewBlockBelow: () => api.insert({ type: "text", text: "" }, { focus: true, afterId: id }),
-        onBackspaceEmpty: removeAndGoUp,
-        onMathBlockBelow: () => {
-          if (rich && !rich.getText().trim()) toMath();
-          else api.insert({ type: "math", text: "" }, { focus: true, afterId: id });
-        },
-      });
-      function toMath() {
-        const r = rich; rich = null; editing = null;
-        if (r) r.destroy();
-        store.update(id, { type: "math", text: "" });
-        setTimeout(() => startEdit(id), 0);
-      }
-      editing = { id, rich };
-      rich.focus();
     }
 
     function stopEdit() {
       if (!editing) return;
       const { id, rich } = editing;
       editing = null;
-      if (rich) rich.destroy();
+      if (rich) { rich.blur(); return; }
       const n = nodes.get(id), b = blockById(id);
-      if (n && b) { renderBody(b, n.body); n.key = keyOf(b); }
+      if (n && b) {
+        if (canRich(b)) { mountRich(id, n, b.text || ""); n.key = keyOf(b); }
+        else { renderBody(b, n.body); n.key = keyOf(b); }
+      }
     }
 
     document.addEventListener("click", (e) => { if (!e.target.closest(".nb-tools")) container.querySelectorAll(".nb-pop").forEach((p) => (p.hidden = true)); });
-    // Clicking anywhere outside the block being edited ends editing, even if the textarea never had focus.
+    // Clicking outside the block being edited ends editing, even if it never had focus.
     document.addEventListener("mousedown", (e) => {
       if (!editing || e.target.closest('.nb[data-id="' + editing.id + '"]')) return;
       if (window.PLRich && window.PLRich.isOwnUi(e.target)) return;
@@ -323,19 +349,22 @@
       async insert(partial, o) {
         o = o || {};
         const id = await store.add(partial, o.afterId ? { after: o.afterId } : undefined);
-        if (o.focus) { if (nodes.has(id)) startEdit(id); else focusWanted = id; }
+        if (o.focus) {
+          const at = o.focus === "start" ? "start" : "end";
+          if (nodes.has(id)) focusBlock(id, at); else focusWanted = { id, at };
+        }
         return id;
       },
       editingId: () => (editing ? editing.id : null),
       editor: () => (editing && editing.rich) || null,
       edit: (id) => startEdit(id),
     };
-    // Like Notion: clicking the empty space of the notes starts writing at the end.
+    // Like Notion: clicking the empty space below the notes starts writing at the end.
     container.addEventListener("click", (e) => {
-      if (editing || e.target.closest(".nb, button, a, input, textarea, select")) return;
+      if (e.target.closest(".nb, button, a, input, textarea, select")) return;
       if (window.PLRich && window.PLRich.isOwnUi(e.target)) return;
       const last = blocks[blocks.length - 1];
-      if (last && last.type === "text" && !String(last.text || "").trim()) startEdit(last.id);
+      if (last && last.type === "text" && !String(last.text || "").trim()) focusBlock(last.id, "end");
       else api.insert({ type: "text", text: "" }, { focus: true });
     });
     store.subscribe(sync);

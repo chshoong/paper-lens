@@ -413,8 +413,10 @@
     const ed = await E.edit(id);
     E.type(ed, "a*b $5 <b> _x_");
     document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    await waitFor(() => E.ui.editingId() === null && E.blockEl(id).querySelector(".nb-text"), 3000, "rendered");
-    eq(E.blockEl(id).querySelector(".nb-text").textContent.trim(), "a*b $5 <b> _x_");
+    await waitFor(() => E.ui.editingId() === null, 3000, "closed");
+    await E.store.flush();
+    const stored = E.store.blocks().find((b) => b.id === id).text;
+    eq(window.PLRichConvert.mdToDelta(stored).ops.map((o) => o.insert).join("").trim(), "a*b $5 <b> _x_", "reads back as text: " + stored);
   });
 
   test("a block with a table opens as raw text with a note", async () => {
@@ -428,35 +430,29 @@
   test("a checkbox can be ticked without opening the block", async () => {
     const E = await mountEditor("local");
     const id = await E.ui.insert({ type: "text", text: "- [ ] 첫째\n- [ ] 둘째" });
-    const box = await waitFor(() => E.blockEl(id).querySelectorAll('.nb-text input[type="checkbox"]')[1], 3000, "checkbox");
-    box.click();
+    const li = await waitFor(() => E.blockEl(id).querySelectorAll('.ql-editor li[data-list="unchecked"]')[1], 3000, "checkbox item");
+    const ui = li.querySelector(".ql-ui");
+    ui.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); ui.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await waitFor(() => E.store.blocks().find((b) => b.id === id).text === "- [ ] 첫째\n- [x] 둘째", 3000, "ticked");
-    eq(E.ui.editingId(), null, "not opened");
   });
 
   // ---------- shared look ----------
-  test("headings and lists look the same while editing and after", async () => {
+  test("focusing a block does not change how it looks", async () => {
     const E = await mountEditor("local");
     E.div.style.width = "460px";
     const id = await E.ui.insert({ type: "text", text: "## 제목\n\n- 항목" });
-    const st = await waitFor(() => E.blockEl(id).querySelector(".nb-text h2"), 3000, "static h2");
-    const sFont = getComputedStyle(st).fontSize, sWeight = getComputedStyle(st).fontWeight;
-    const sLi = E.blockEl(id).querySelector(".nb-text li");
-    const sIndent = sLi.getBoundingClientRect().left - E.blockEl(id).querySelector(".nb-body").getBoundingClientRect().left;
+    const blk = await waitFor(() => E.blockEl(id) && E.blockEl(id).querySelector(".ql-editor h2") && E.blockEl(id), 3000, "editor shown without clicking");
+    const before = blk.getBoundingClientRect().height, h2 = getComputedStyle(blk.querySelector("h2")).fontSize;
     await E.edit(id);
-    const eh = E.blockEl(id).querySelector(".ql-editor h2");
-    eq(getComputedStyle(eh).fontSize, sFont, "h2 size");
-    eq(getComputedStyle(eh).fontWeight, sWeight, "h2 weight");
-    const eLi = E.blockEl(id).querySelector(".ql-editor li");
-    const eIndent = eLi.getBoundingClientRect().left - E.blockEl(id).querySelector(".nb-body").getBoundingClientRect().left;
-    ok(Math.abs(eIndent - sIndent) <= 2, "list indent static " + sIndent + " vs editor " + eIndent);
+    eq(Math.round(blk.getBoundingClientRect().height), Math.round(before), "same height");
+    eq(getComputedStyle(blk.querySelector("h2")).fontSize, h2, "same heading size");
   });
 
   test("highlight and text colors follow the dark theme tokens", async () => {
     const E = await mountEditor("local");
     const id = await E.ui.insert({ type: "text", text: '<mark data-c="yellow">형광</mark> <span data-c="red">빨강</span>' });
-    const mk = await waitFor(() => E.blockEl(id).querySelector('.nb-text mark[data-c="yellow"]'), 3000, "mark");
-    const sp = E.blockEl(id).querySelector('.nb-text span[data-c="red"]');
+    const mk = await waitFor(() => E.blockEl(id).querySelector('[data-h="yellow"], mark[data-c="yellow"]'), 3000, "mark");
+    const sp = E.blockEl(id).querySelector('span[data-c="red"]');
     const probe = document.createElement("span"); document.body.append(probe);
     const tokenColor = (v, prop) => { probe.style[prop] = "var(" + v + ")"; return getComputedStyle(probe)[prop]; };
     const light = getComputedStyle(mk).backgroundColor;
@@ -473,7 +469,7 @@
   test("inline math takes only its own width (no stray space)", async () => {
     const E = await mountEditor("local");
     const id = await E.ui.insert({ type: "text", text: "값 $\\sqrt{d_k}$ 끝" });
-    const c = await waitFor(() => E.blockEl(id).querySelector(".nb-text mjx-container svg") && E.blockEl(id).querySelector(".nb-text mjx-container"), 15000, "math");
+    const c = await waitFor(() => E.blockEl(id).querySelector("mjx-container svg") && E.blockEl(id).querySelector("mjx-container"), 15000, "math");
     const cw = c.getBoundingClientRect().width, sw = c.querySelector("svg").getBoundingClientRect().width;
     ok(cw <= sw + 3, "container " + Math.round(cw) + "px vs svg " + Math.round(sw) + "px");
   });
@@ -481,7 +477,7 @@
   test("math glyphs are really drawn (every <use> points at a glyph)", async () => {
     const E = await mountEditor("local");
     const id = await E.ui.insert({ type: "text", text: "쿼리 $Q$ 와 $\\sqrt{d_k}$" });
-    const svg = await waitFor(() => E.blockEl(id).querySelector(".nb-text mjx-container svg"), 15000, "svg");
+    const svg = await waitFor(() => E.blockEl(id).querySelector("mjx-container svg"), 15000, "svg");
     const uses = [...svg.querySelectorAll("use")];
     ok(uses.length > 0, "has glyph uses");
     for (const u of uses) {
@@ -607,5 +603,79 @@
     R.ed.root.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
     R.ed.root.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText", data: "a" }));
     eq(getComputedStyle(R.ed.root, "::before").content, "none", "hidden once input starts");
+  });
+
+  // ---- Notion-like editing ----
+  const editorOf = (E, id) => E.blockEl(id).querySelector(".ql-editor");
+  const quillOf = (E, id) => window.Quill.find(E.blockEl(id).querySelector(".nb-rich"));
+  test("notion: text blocks are editable right away (no edit mode)", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "바로 쓰기" });
+    await waitFor(() => editorOf(E, id), 3000, "editor present without clicking");
+  });
+
+  test("notion: Enter at the end makes a new block and moves there", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "첫 문단" });
+    const ed = await E.edit(id);
+    const q = quillOf(E, id); q.setSelection(q.getLength() - 1, 0);
+    key(ed, "Enter");
+    await waitFor(() => E.store.blocks().length === 2 && E.ui.editingId() && E.ui.editingId() !== id, 3000, "new block focused");
+    eq(E.store.blocks()[0].text, "첫 문단");
+  });
+
+  test("notion: Enter in the middle splits the block", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "앞부분뒷부분" });
+    const ed = await E.edit(id);
+    const q = quillOf(E, id); q.setSelection(3, 0);
+    key(ed, "Enter");
+    await waitFor(() => E.store.blocks().length === 2, 3000, "split");
+    await E.store.flush();
+    eq(E.store.blocks().map((b) => b.text), ["앞부분", "뒷부분"]);
+  });
+
+  test("notion: Enter inside a list adds an item in the same block", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "- 하나" });
+    const ed = await E.edit(id);
+    const q = quillOf(E, id); q.setSelection(q.getLength() - 1, 0);
+    key(ed, "Enter");
+    await sleep(50);
+    eq(E.store.blocks().length, 1, "same block");
+    eq(q.getLines().length, 2, "two items");
+  });
+
+  test("notion: Backspace at the start merges with the block above", async () => {
+    const E = await mountEditor("local");
+    const a = await E.ui.insert({ type: "text", text: "위" });
+    const b = await E.ui.insert({ type: "text", text: "아래" });
+    const ed = await E.edit(b);
+    const q = quillOf(E, b); q.setSelection(0, 0);
+    key(ed, "Backspace");
+    await waitFor(() => E.store.blocks().length === 1, 3000, "merged");
+    await E.store.flush();
+    eq(E.store.blocks()[0].text, "위아래");
+    await waitFor(() => E.ui.editingId() === a, 2000, "caret in the block above");
+  });
+
+  test("notion: arrow keys move between blocks", async () => {
+    const E = await mountEditor("local");
+    const a = await E.ui.insert({ type: "text", text: "첫째" });
+    const b = await E.ui.insert({ type: "text", text: "둘째" });
+    const ed = await E.edit(a);
+    const q = quillOf(E, a); q.setSelection(q.getLength() - 1, 0);
+    key(ed, "ArrowDown");
+    await waitFor(() => E.ui.editingId() === b, 3000, "moved down");
+    key(editorOf(E, b), "ArrowUp");
+    await waitFor(() => E.ui.editingId() === a, 3000, "moved up");
+  });
+
+  test("design: one clean sans-serif font in the notes", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "글꼴" });
+    const ff = getComputedStyle(await waitFor(() => editorOf(E, id), 3000, "editor")).fontFamily;
+    ok(!/Serif KR|Myungjo|Batang|Georgia|Plex/i.test(ff) && /apple|system|SD Gothic/i.test(ff), ff);
+    ok(!document.querySelector('link[href*="fonts.googleapis.com"]'), "no web font download");
   });
 })();

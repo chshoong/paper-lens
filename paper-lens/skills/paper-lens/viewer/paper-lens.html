@@ -1,30 +1,29 @@
 <title>Paper Lens</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Noto+Serif+KR:wght@400;600&display=swap">
 <style>
-/* Layout: one-screen reader. Left = PDF desk (pages on a blue-grey desk), right = assistant panel with tabs. Stacks with a view switch under 860px. */
+/* Layout: one-screen reader. Left = the PDF on a soft gray desk, right = a quiet, Notion-like page (notes + tabs).
+   One system sans-serif everywhere (no web fonts); color only where it carries meaning. */
 :root {
-  --desk: #e4e8ef;
+  --desk: #f1f1ef;
   --paper: #ffffff;
-  --bg: #f6f7fa;
+  --bg: #f7f7f5;
   --surface: #ffffff;
-  --fg: #1b2230;
-  --muted: #5d677a;
-  --line: #d6dbe4;
-  --accent: #2f48b8;
-  --accent-soft: #e6eafb;
+  --fg: #37352f;
+  --muted: #787774;
+  --line: #e9e9e7;
+  --hover: rgba(55, 53, 47, .06);
+  --accent: #2383e2;
+  --accent-soft: rgba(35, 131, 226, .1);
   --accent-fg: #ffffff;
-  --mark: #f3e27a;
-  --mark-soft: rgba(243, 226, 122, .45);
-  --capture: rgba(47, 72, 184, .14);
-  --danger: #b4342c;
-  --ok: #2a7a4f;
-  --shadow: 0 1px 2px rgba(20, 30, 60, .08), 0 4px 18px rgba(20, 30, 60, .07);
-  --f-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
-  --f-read: "Noto Serif KR", "AppleMyungjo", "Batang", Georgia, serif;
-  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --mark: #fbe7a1;
+  --mark-soft: rgba(251, 231, 161, .55);
+  --capture: rgba(35, 131, 226, .14);
+  --danger: #d44c47;
+  --ok: #448361;
+  --shadow: 0 0 0 1px rgba(15, 15, 15, .05), 0 3px 6px rgba(15, 15, 15, .1), 0 9px 24px rgba(15, 15, 15, .14);
+  --f-ui: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Segoe UI", "Malgun Gothic", "Noto Sans KR", Helvetica, Arial, sans-serif;
+  --f-read: var(--f-ui);
+  --f-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --panel-w: clamp(300px, 45vw, 1000px);
   /* note colors (text / highlight) */
   --c-default: var(--fg); --c-gray: #787774; --c-brown: #9f6b53; --c-orange: #d9730d; --c-yellow: #8a6416; --c-green: #448361; --c-blue: #337ea9; --c-purple: #9065b0; --c-red: #d44c47;
@@ -32,21 +31,21 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --desk: #12161e; --paper: #f4f4f1; --bg: #171b24; --surface: #1d2230; --fg: #e3e7ef; --muted: #9aa3b5;
-    --line: #2e3546; --accent: #8fa2ff; --accent-soft: #252c48; --accent-fg: #10142a; --mark: #e2cf5a;
-    --mark-soft: rgba(226, 207, 90, .28); --capture: rgba(143, 162, 255, .2); --danger: #ff8a80; --ok: #7fd3a1;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 22px rgba(0, 0, 0, .35);
+    --desk: #151515; --paper: #f4f4f1; --bg: #202020; --surface: #191919; --fg: rgba(255, 255, 255, .86); --muted: #9b9b9b;
+    --line: #2f2f2f; --hover: rgba(255, 255, 255, .06); --accent: #529cca; --accent-soft: rgba(82, 156, 202, .16); --accent-fg: #0d1b24; --mark: #6b5a24;
+    --mark-soft: rgba(203, 167, 63, .28); --capture: rgba(82, 156, 202, .2); --danger: #ec6b63; --ok: #6cb48a;
+    --shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 3px 6px rgba(0, 0, 0, .3), 0 9px 24px rgba(0, 0, 0, .4);
     --c-default: var(--fg); --c-gray: #a3a3a3; --c-brown: #c5957f; --c-orange: #e0935a; --c-yellow: #d9b05a; --c-green: #6cb48a; --c-blue: #6f9fe0; --c-purple: #b58ae0; --c-red: #ec6b63;
     --h-default: transparent; --h-gray: #3a3a3a; --h-brown: #4a342b; --h-orange: #5a3b22; --h-yellow: #574622; --h-green: #263f31; --h-blue: #1d3a52; --h-purple: #3d2e4d; --h-red: #55302c; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --desk: #12161e; --paper: #f4f4f1; --bg: #171b24; --surface: #1d2230; --fg: #e3e7ef; --muted: #9aa3b5;
-  --line: #2e3546; --accent: #8fa2ff; --accent-soft: #252c48; --accent-fg: #10142a; --mark: #e2cf5a;
-  --mark-soft: rgba(226, 207, 90, .28); --capture: rgba(143, 162, 255, .2); --danger: #ff8a80; --ok: #7fd3a1;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 22px rgba(0, 0, 0, .35);
-    --c-default: var(--fg); --c-gray: #a3a3a3; --c-brown: #c5957f; --c-orange: #e0935a; --c-yellow: #d9b05a; --c-green: #6cb48a; --c-blue: #6f9fe0; --c-purple: #b58ae0; --c-red: #ec6b63;
-    --h-default: transparent; --h-gray: #3a3a3a; --h-brown: #4a342b; --h-orange: #5a3b22; --h-yellow: #574622; --h-green: #263f31; --h-blue: #1d3a52; --h-purple: #3d2e4d; --h-red: #55302c; color-scheme: dark;
+  --desk: #151515; --paper: #f4f4f1; --bg: #202020; --surface: #191919; --fg: rgba(255, 255, 255, .86); --muted: #9b9b9b;
+  --line: #2f2f2f; --hover: rgba(255, 255, 255, .06); --accent: #529cca; --accent-soft: rgba(82, 156, 202, .16); --accent-fg: #0d1b24; --mark: #6b5a24;
+  --mark-soft: rgba(203, 167, 63, .28); --capture: rgba(82, 156, 202, .2); --danger: #ec6b63; --ok: #6cb48a;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 3px 6px rgba(0, 0, 0, .3), 0 9px 24px rgba(0, 0, 0, .4);
+  --c-default: var(--fg); --c-gray: #a3a3a3; --c-brown: #c5957f; --c-orange: #e0935a; --c-yellow: #d9b05a; --c-green: #6cb48a; --c-blue: #6f9fe0; --c-purple: #b58ae0; --c-red: #ec6b63;
+  --h-default: transparent; --h-gray: #3a3a3a; --h-brown: #4a342b; --h-orange: #5a3b22; --h-yellow: #574622; --h-green: #263f31; --h-blue: #1d3a52; --h-purple: #3d2e4d; --h-red: #55302c; color-scheme: dark;
 }
 html, body { height: 100%; }
 body { background: var(--bg); color: var(--fg); font-family: var(--f-ui); font-size: 14px; line-height: 1.55; overflow: hidden; }
@@ -378,6 +377,59 @@ mark[data-c="default"], [data-h="default"] { background: var(--h-default); } mar
   .page .pnum { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .dot { animation: none; opacity: .7; } }
+
+/* ---- Notion-like cleanup: one font, quiet labels, flat document ---- */
+body { -webkit-font-smoothing: antialiased; }
+.pageind, .zoompct, .page .pnum, .feat .k, .tab .badge, .sect-h, .three li::before, .guide .pg, .tp-h .pg, .psec-o, .pc-anchor, .cmp .lbl, .nb-src, .note .h { font-family: var(--f-ui); letter-spacing: 0; text-transform: none; }
+.sect-h { font-size: 12px; font-weight: 600; color: var(--muted); }
+.feat .k { font-size: 12px; font-weight: 600; }
+.tp-h .pg { font-size: 12px; font-weight: 600; letter-spacing: 0; }
+.bar { min-height: 46px; padding-block: 6px; }
+.btn { border-color: transparent; background: transparent; border-radius: 6px; color: var(--fg); }
+.btn:hover { background: var(--hover); border-color: transparent; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); }
+.btn.primary:hover { background: var(--accent); filter: brightness(.95); }
+.btn.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+select.btn { border: 1px solid var(--line); }
+.tabs { padding: 0 16px; gap: 6px; }
+.tab { font-size: 13.5px; padding: 12px 4px 10px; }
+.tabbody { padding: 18px 28px 40px; }
+#panel { border-left-color: var(--line); }
+
+/* the note page */
+.notes-head { margin-bottom: 6px; }
+.save-state { font-size: 12px; }
+.nb-list { gap: 0; }
+.nb { grid-template-columns: 24px minmax(0, 1fr); gap: 0 2px; padding: 0; border-radius: 4px; }
+.nb:hover { background: transparent; }
+.nb-tools { grid-column: 1; grid-row: 1; position: relative; }
+.nb-handle { display: grid; place-items: center; width: 20px; height: 24px; margin-top: 3px; border: 0; background: none; border-radius: 4px; color: var(--muted); opacity: 0; padding: 0; cursor: grab; transition: opacity .12s; }
+.nb:hover .nb-handle, .nb-handle:focus-visible { opacity: .55; }
+.nb-handle:hover { opacity: 1 !important; background: var(--hover); }
+.nb-pop { left: 0; right: auto; top: 28px; min-width: 170px; border-radius: 8px; padding: 6px; }
+.nb-pop button { font-size: 13.5px; padding: 6px 10px; border-radius: 4px; }
+.nb-pop button:hover { background: var(--hover); color: var(--fg); }
+.nb-body { grid-column: 2; padding: 3px 2px; border-radius: 4px; }
+.nb-editing { background: transparent; box-shadow: none; }
+.nb-claude .nb-body { box-shadow: inset 2px 0 0 var(--accent-soft); padding-left: 8px; }
+.nb-rich .ql-editor, .nb-body .md, .nb-text { font-size: 15.5px; line-height: 1.6; }
+.nb-rich .ql-editor p, .nb-body .nb-text p { margin: 0; }
+.nb-body .nb-text h1, .nb-rich .ql-editor h1 { font-size: 26px; margin: .9em 0 .15em; }
+.nb-body .nb-text h2, .nb-rich .ql-editor h2 { font-size: 20px; margin: .8em 0 .1em; }
+.nb-body .nb-text h3, .nb-rich .ql-editor h3 { font-size: 17px; margin: .6em 0 .05em; }
+.nb-quote { background: none; border-left: 3px solid var(--fg); border-radius: 0; padding: 0 0 0 14px; font-family: var(--f-ui); font-size: 15px; color: var(--fg); }
+.nb-body .nb-text blockquote, .nb-rich .ql-editor blockquote { border-left: 3px solid var(--fg); color: var(--fg); padding-left: 14px; }
+.nb-src { color: var(--muted); font-size: 12px; padding: 2px 0 0; }
+.nb-src:hover { color: var(--accent); }
+.nb-math { padding: 6px 0; }
+.nb-empty { padding: 4px 26px; font-size: 14px; }
+.nb-raw-note { font-size: 12px; }
+.nb-input { font-size: 15px; }
+.nb-editing.nb-math { background: var(--bg); border-radius: 6px; padding: 8px 10px; }
+.nb-rich .ql-editor.ql-blank::before { font-size: 15px; color: rgba(120, 119, 116, .6); }
+#richbar { border-radius: 8px; }
+#richbar .rb { border-radius: 4px; }
+#richbar .rb:hover { background: var(--hover); color: var(--fg); }
 </style>
 
 <div id="app" data-view="pdf">

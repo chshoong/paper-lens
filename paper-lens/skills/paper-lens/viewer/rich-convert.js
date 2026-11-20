@@ -270,5 +270,16 @@
   }
   const roundTrips = (text) => { try { return deltaToMd(mdToDelta(text)) === normalize(text); } catch { return false; } };
 
-  window.PLRichConvert = { mdToDelta, deltaToMd, normalize, roundTrips, COLORS, SIZES };
+  // Join block b onto the end of block a (Backspace at the start of b). Returns the merged Markdown
+  // and the index in the merged document where b's text begins.
+  function mergeMd(a, b) {
+    const da = mdToDelta(a).ops, db = mdToDelta(b).ops;
+    const last = da[da.length - 1];
+    if (last && last.insert === "\n") da.pop();
+    else if (last && typeof last.insert === "string" && last.insert.endsWith("\n")) last.insert = last.insert.slice(0, -1);
+    let at = 0; for (const op of da) at += typeof op.insert === "string" ? op.insert.length : 1;
+    return { text: deltaToMd({ ops: da.concat(db) }), at };
+  }
+
+  window.PLRichConvert = { mdToDelta, deltaToMd, normalize, roundTrips, mergeMd, COLORS, SIZES };
 })();

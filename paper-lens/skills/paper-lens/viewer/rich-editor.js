@@ -134,13 +134,55 @@
       highlight: { key: "h", shortKey: true, shiftKey: true, handler(range, ctx) { quill.format("highlight", ctx.format.highlight ? false : lastHighlight, "user"); return false; } },
       newBlock: { key: "Enter", shortKey: true, handler() { flushMath(); cb.onNewBlockBelow && cb.onNewBlockBelow(); return false; } },
       exit: { key: "Escape", handler() { if (!pop.hidden) { closePop(false); return false; } cb.onExit && cb.onExit(); return false; } },
-      backspaceEmpty: { key: "Backspace", handler() { if (quill.getLength() <= 1) { cb.onBackspaceEmpty && cb.onBackspaceEmpty(); return false; } return true; } },
+      backspaceEmpty: { key: "Backspace", collapsed: true, handler(range, ctx) {
+        if (quill.getLength() <= 1) { cb.onBackspaceEmpty && cb.onBackspaceEmpty(); return false; }
+        // At the very start: a formatted first line (heading, list, quote) loses its format first, like Notion.
+        if (range.index === 0 && !Object.keys(ctx.format || {}).some((k) => ["header", "list", "blockquote", "indent"].includes(k)) && cb.onBackspaceAtStart) {
+          cb.onBackspaceAtStart(C().deltaToMd(quill.getContents()));
+          return false;
+        }
+        return true;
+      } },
+      split: { key: "Enter", collapsed: true, handler(range, ctx) {
+        // Lists and quotes keep Quill's own Enter (next item, or leave the list on an empty item).
+        if (!cb.onSplit || ctx.format.list || ctx.format.blockquote || ctx.format["code-block"]) return true;
+        flushMath();
+        const sel = quill.getSelection() || range;
+        const len = quill.getLength();
+        const lineFmt = {}; for (const k of ["header", "list", "blockquote", "indent"]) lineFmt[k] = (ctx.format && ctx.format[k]) || false;
+        const rest = quill.getContents(sel.index, len - sel.index);
+        const restMd = /\S/.test(rest.ops.map((o) => (typeof o.insert === "string" ? o.insert : "x")).join("")) ? C().deltaToMd(rest) : "";
+        if (len - 1 - sel.index > 0) {
+          quill.deleteText(sel.index, len - 1 - sel.index, "user");
+          quill.formatLine(sel.index, 1, lineFmt, "user");
+        }
+        cb.onSplit(restMd);
+        return false;
+      } },
+      arrowUp: { key: "ArrowUp", collapsed: true, handler(range) {
+        if (!cb.onArrowOut) return true;
+        const top = quill.getBounds(range.index).top, first = quill.getBounds(0).top;
+        if (top - first > 4) return true;
+        cb.onArrowOut("up"); return false;
+      } },
+      arrowDown: { key: "ArrowDown", collapsed: true, handler(range) {
+        if (!cb.onArrowOut) return true;
+        const b = quill.getBounds(range.index), end = quill.getBounds(quill.getLength() - 1);
+        if (end.top - b.top > 4) return true;
+        cb.onArrowOut("down"); return false;
+      } },
     };
     quill = new Quill(el, {
       formats: FORMATS,
       modules: { toolbar: false, keyboard: { bindings } },
       placeholder: "## 제목, - 목록, $수식$",
     });
+    // Our key handling runs before Quill's defaults (e.g. its "Enter at end of a heading").
+    const ours = new Set(Object.values(bindings).map((b) => b.handler));
+    for (const k of Object.keys(quill.keyboard.bindings)) {
+      const arr = quill.keyboard.bindings[k];
+      if (Array.isArray(arr)) arr.sort((x, y) => (ours.has(y.handler) ? 1 : 0) - (ours.has(x.handler) ? 1 : 0));
+    }
     // Keep only our formats on paste (Quill already drops formats not in `formats`; colors outside the palette are dropped by the whitelist).
     quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
       delta.ops.forEach((op) => { if (op.attributes) for (const k of Object.keys(op.attributes)) if (!FORMATS.includes(k)) delete op.attributes[k]; });
@@ -333,11 +375,29 @@
       } else quill.focus();
     }
 
+    quill.on("selection-change", (range, old) => {
+      if (range && !old) cb.onFocus && cb.onFocus();
+      else if (!range && old) cb.onBlur && cb.onBlur();
+    });
+
     const api = {
       root: quill.root,
       quill,
       getText: () => C().deltaToMd(quill.getContents()),
-      focus() { quill.focus(); quill.setSelection(quill.getLength() - 1, 0, "silent"); },
+      // Show new stored text (a remote change) without reporting it back as an edit.
+      setText(md) {
+        quill.setContents(C().mdToDelta(md), "silent");
+        last = C().deltaToMd(quill.getContents());
+        hint(quill.getLength() <= 1);
+      },
+      hasFocus: () => quill.hasFocus(),
+      blur() { flushMath(); emit(); quill.blur(); },
+      focus(at) {
+        quill.focus();
+        const end = quill.getLength() - 1;
+        const i = at === "start" ? 0 : typeof at === "number" ? Math.max(0, Math.min(at, end)) : end;
+        quill.setSelection(i, 0, "user");
+      },
       apply(act, v) {
         const range = quill.getSelection(true);
         const f = quill.getFormat(range);
