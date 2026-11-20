@@ -330,6 +330,14 @@
       editor: () => (editing && editing.rich) || null,
       edit: (id) => startEdit(id),
     };
+    // Like Notion: clicking the empty space of the notes starts writing at the end.
+    container.addEventListener("click", (e) => {
+      if (editing || e.target.closest(".nb, button, a, input, textarea, select")) return;
+      if (window.PLRich && window.PLRich.isOwnUi(e.target)) return;
+      const last = blocks[blocks.length - 1];
+      if (last && last.type === "text" && !String(last.text || "").trim()) startEdit(last.id);
+      else api.insert({ type: "text", text: "" }, { focus: true });
+    });
     store.subscribe(sync);
     return api;
   }

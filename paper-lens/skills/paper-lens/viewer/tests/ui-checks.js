@@ -574,4 +574,38 @@
     R.typeAtEnd("$"); R.typeAtEnd(" ");
     await waitFor(() => $("#mathlive").hidden, 3000, "preview hidden after conversion");
   });
+
+  // ---- click-to-write and placeholder ----
+  test("clicking the empty notes area starts writing (reusing an empty last block)", async () => {
+    const E = await mountEditor("local");
+    E.div.style.minHeight = "300px";
+    await sleep(50);
+    const n0 = E.store.blocks().length;
+    E.div.querySelector(".nb-list").parentElement.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitFor(() => E.ui.editingId(), 3000, "editing a new block");
+    eq(E.store.blocks().length, n0 + 1, "one new block");
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await waitFor(() => !E.ui.editingId(), 3000, "closed");
+    E.div.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await waitFor(() => E.ui.editingId(), 3000, "editing again");
+    eq(E.store.blocks().length, n0 + 1, "empty last block reused");
+  });
+
+  test("the empty-block hint stays on one line inside the box", async () => {
+    const R = mountRich("");
+    R.host.style.width = "300px";
+    const cs = getComputedStyle(R.ed.root, "::before");
+    eq(cs.whiteSpace, "nowrap");
+    eq(cs.overflow, "hidden");
+    ok(R.q.root.dataset.placeholder.length <= 24, "short hint: " + R.q.root.dataset.placeholder);
+  });
+
+  test("the hint disappears as soon as typing starts (Korean composition included)", async () => {
+    const R = mountRich("");
+    R.ed.root.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    eq(getComputedStyle(R.ed.root, "::before").content, "none", "hidden while composing");
+    R.ed.root.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    R.ed.root.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "insertText", data: "a" }));
+    eq(getComputedStyle(R.ed.root, "::before").content, "none", "hidden once input starts");
+  });
 })();

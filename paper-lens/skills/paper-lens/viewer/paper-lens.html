@@ -211,7 +211,10 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
 /* Rich notes: the same look while editing (.ql-editor) and after (.nb-text) */
 .nb-rich .ql-container { font-family: inherit; font-size: inherit; height: auto; }
 .nb-rich .ql-editor { padding: 0; height: auto; overflow: visible; font-family: var(--f-read); font-size: 15px; line-height: 1.75; color: var(--fg); }
-.nb-rich .ql-editor.ql-blank::before { left: 0; right: 0; font-style: normal; color: var(--muted); font-family: var(--f-ui); font-size: 13.5px; }
+.nb-rich .ql-editor.ql-blank::before { left: 0; right: 0; font-style: normal; color: var(--muted); font-family: var(--f-ui); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.nb-rich .ql-editor.pl-typing::before { content: none; }
+#notesEd { min-height: 55vh; cursor: text; }
+#notesEd .nb-add { cursor: auto; }
 .nb-body .nb-text, .nb-rich .ql-editor { overflow-wrap: anywhere; }
 .nb-body .nb-text p, .nb-rich .ql-editor p { margin: .2em 0; }
 .nb-body .nb-text h1, .nb-rich .ql-editor h1 { font-family: var(--f-ui); font-size: 22px; font-weight: 700; line-height: 1.35; margin: .7em 0 .25em; letter-spacing: -.01em; }

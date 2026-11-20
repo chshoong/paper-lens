@@ -139,7 +139,7 @@
     quill = new Quill(el, {
       formats: FORMATS,
       modules: { toolbar: false, keyboard: { bindings } },
-      placeholder: "글 쓰기 · ## 제목, - 목록, $x^2$ 수식, ⌘Enter 새 블록",
+      placeholder: "## 제목, - 목록, $수식$",
     });
     // Keep only our formats on paste (Quill already drops formats not in `formats`; colors outside the palette are dropped by the whitelist).
     quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
@@ -148,6 +148,15 @@
     });
     // Ignore Quill's key handling while an IME is composing (Enter/Esc must not act mid-syllable).
     quill.root.addEventListener("keydown", (e) => { if (keyIsComposing(e)) e.stopImmediatePropagation(); }, true);
+
+    // Hide the empty-block hint the moment input starts; with an IME, Quill only learns about
+    // the text at compositionend, so the hint would otherwise sit on top of the first syllables.
+    let composing = false;
+    const hint = (on) => quill.root.classList.toggle("pl-typing", !on);
+    quill.root.addEventListener("compositionstart", () => { composing = true; hint(false); });
+    quill.root.addEventListener("compositionend", () => { composing = false; setTimeout(() => hint(quill.getLength() <= 1), 0); });
+    quill.root.addEventListener("beforeinput", (e) => { if (e.inputType && e.inputType.startsWith("insert")) hint(false); });
+    quill.on("text-change", () => { if (!composing) hint(quill.getLength() <= 1); });
 
     quill.setContents(C().mdToDelta(text), "silent");
     let last = C().deltaToMd(quill.getContents());
