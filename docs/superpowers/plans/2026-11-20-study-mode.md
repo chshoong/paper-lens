@@ -160,6 +160,7 @@
 - 편집기 동작(스펙 6.2):
   - 블록을 클릭하면 textarea 편집 상태가 되고, blur되면 렌더링 상태로 돌아간다.
   - `math` 블록은 편집 중에 아래에 실시간 미리보기를 보여준다. 오류가 나면 붉은 안내를 띄우고 원문은 그대로 둔다.
+  - `text` 블록도 편집 중인 글에 `$`가 들어 있으면 textarea 아래에 렌더링 미리보기(`renderRich`)를 보여준다. 입력이 멈추고 150ms 뒤에 갱신한다. 미리보기 안 수식에 오류가 있으면 그 수식만 붉게 표시한다.
   - Enter는 새 text 블록이다. 단 `isComposing`이면 무시한다.
   - Shift+Enter는 줄바꿈이다.
   - 빈 text 블록에서 `$$`를 입력하면 math 블록으로 바뀐다.
@@ -176,6 +177,7 @@
   - math 블록 `\frac{a` → 붉은 오류 안내가 보이고, 편집 상태에서 원문이 유지된다.
   - 편집 중 `keydown Enter`에 `isComposing:true`를 주면 블록 수가 그대로다. `isComposing:false`면 +1(Review Focus 1).
   - 빈 블록에 `$$` 입력 → type이 math가 된다.
+  - text 블록 편집 중 `"넓이는 $\\pi r^2$"` 입력 → 200ms 뒤 textarea 아래 미리보기에 SVG 수식 1개가 보인다.
   - 블록 A를 편집하는 중에 `__fake.db.write("blocks/zz", {type:"text", text:"from claude", order: 999, by:"claude"})` → "from claude"가 화면에 나타나고, A의 textarea 값은 그대로다(Review Focus 3).
 - [ ] **Step 2: dev 빌드 후 실패를 확인한다.**
 - [ ] **Step 3: `notes-ui.js`를 구현하고, paper-lens.html에 MathJax(`tex: {inlineMath: [["$","$"],["\\(","\\)"]], displayMath: [["$$","$$"]]}, startup: {typeset: false}`)와 CSS를 추가한다.**
