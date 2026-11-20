@@ -12,7 +12,7 @@ working directory.
 import html, json, os, shutil, sys
 
 VIEWER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "viewer")
-SCRIPTS = ["notes-core.js", "notes-store.js", "notes-ui.js", "bridge.js"]
+SCRIPTS = ["notes-core.js", "notes-store.js", "notes-ui.js", "bridge.js", "rich-convert.js", "rich-editor.js"]
 
 
 def main(paper_dir, out_dir):

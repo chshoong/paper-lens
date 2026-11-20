@@ -4,7 +4,7 @@ import json, os, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "paper-lens", "skills", "paper-lens", "scripts", "prepare_bundle.py")
-JS = ["notes-core.js", "notes-store.js", "notes-ui.js", "bridge.js"]
+JS = ["notes-core.js", "notes-store.js", "notes-ui.js", "bridge.js", "rich-convert.js", "rich-editor.js"]
 
 
 def main():
