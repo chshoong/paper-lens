@@ -709,4 +709,16 @@
     await sleep(300);
     eq(E.store.blocks().length, 2, "exactly one new block");
   });
+
+  test("few blocks in a tall notes area stay stacked at the top", async () => {
+    const E = await mountEditor("local");
+    E.div.style.minHeight = "700px";
+    const a = await E.ui.insert({ type: "text", text: "머지.." });
+    const b = await E.ui.insert({ type: "text", text: "" });
+    const c = await E.ui.insert({ type: "text", text: "뭐지.." });
+    await waitFor(() => E.blockEl(c) && E.blockEl(c).querySelector(".ql-editor"), 3000, "blocks");
+    for (const id of [a, b, c]) ok(E.blockEl(id).getBoundingClientRect().height < 50, "block height " + Math.round(E.blockEl(id).getBoundingClientRect().height));
+    const gap = E.blockEl(b).getBoundingClientRect().top - E.blockEl(a).getBoundingClientRect().bottom;
+    ok(gap < 6, "gap between blocks " + Math.round(gap));
+  });
 })();
