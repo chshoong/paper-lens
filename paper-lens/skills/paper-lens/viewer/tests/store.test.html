@@ -1,0 +1,102 @@
+<!doctype html><html><head><meta charset="utf-8"><title>store tests</title></head><body>
+<script src="harness.js"></script>
+<script src="fakes.js"></script>
+<script src="../notes-core.js"></script>
+<script src="../notes-store.js"></script>
+<script>
+const { test, eq, ok, sleep } = PLTest;
+let n = 0;
+async function fresh(opts = {}) {
+  // Each test gets an isolated fake store by clearing the shared map.
+  __fake.db.store.clear();
+  const db = opts.noDb ? null : await claude.use("db");
+  const store = PLStore.create({ db, localKey: "t" + (++n) + Date.now(), legacyNotes: opts.legacy || [] });
+  let latest = [];
+  const unsub = store.subscribe((b) => { latest = b; });
+  await sleep(30);
+  return { store, get: () => latest, unsub };
+}
+
+test("add keeps insertion order and before puts first", async () => {
+  const { store, get } = await fresh();
+  const a = await store.add({ type: "text", text: "A" });
+  const b = await store.add({ type: "text", text: "B" });
+  const c = await store.add({ type: "text", text: "C" }, { before: a });
+  await sleep(30);
+  eq(get().map((x) => x.text), ["C", "A", "B"]);
+  ok(get().every((x) => x.by === "me" && x.createdAt && x.updatedAt), "defaults");
+});
+
+test("update is debounced to one write with the last value", async () => {
+  const { store } = await fresh();
+  const id = await store.add({ type: "text", text: "" });
+  const before = __fake.dbWrites;
+  store.update(id, { text: "1" }); await sleep(100);
+  store.update(id, { text: "12" }); await sleep(100);
+  store.update(id, { text: "123" });
+  await sleep(300);
+  eq(__fake.dbWrites, before, "no write yet");
+  await sleep(500);
+  eq(__fake.dbWrites, before + 1, "one write");
+  eq(__fake.db.get("blocks/" + id).text, "123");
+});
+
+test("pagehide flushes pending edits", async () => {
+  const { store } = await fresh();
+  const id = await store.add({ type: "text", text: "" });
+  store.update(id, { text: "draft" });
+  window.dispatchEvent(new Event("pagehide"));
+  await sleep(50);
+  eq(__fake.db.get("blocks/" + id).text, "draft");
+});
+
+test("remote block arrives while a local edit is pending", async () => {
+  const { store, get } = await fresh();
+  const id = await store.add({ type: "text", text: "old" });
+  store.update(id, { text: "typing..." });
+  ok(store.pendingIds().has(id), "pending");
+  __fake.db.write("blocks/x", { type: "text", text: "from claude", order: 999, by: "claude" });
+  await sleep(50);
+  const texts = get().map((b) => b.text);
+  ok(texts.includes("from claude"), "remote block shown");
+  eq(get().find((b) => b.id === id).text, "typing...", "local edit kept");
+  await store.flush();
+});
+
+test("legacy notes migrate once", async () => {
+  const legacy = [{ page: 1, quote: "q", rects: [] }, { page: 2, answer: "a", label: "L" }];
+  const first = await fresh({ legacy });
+  await sleep(50);
+  eq(first.get().length, 2);
+  ok(__fake.db.get("meta/migrated"), "marker written");
+  first.unsub();
+  const again = PLStore.create({ db: await claude.use("db"), localKey: "again", legacyNotes: legacy });
+  let latest = [];
+  again.subscribe((b) => (latest = b));
+  await sleep(80);
+  eq(latest.length, 2, "no duplicates");
+});
+
+test("no db falls back to local storage with the same api", async () => {
+  const { store, get } = await fresh({ noDb: true });
+  eq(store.mode, "local");
+  const id = await store.add({ type: "math", text: "x" });
+  store.update(id, { text: "x^2" });
+  await store.flush();
+  await sleep(20);
+  eq(get().map((b) => b.text), ["x^2"]);
+  const keys = Object.keys(localStorage).filter((k) => k.endsWith(":blocks"));
+  ok(keys.some((k) => JSON.parse(localStorage.getItem(k)).some((b) => b.text === "x^2")), "persisted");
+});
+
+test("remove and move", async () => {
+  const { store, get } = await fresh();
+  const a = await store.add({ type: "text", text: "A" });
+  const b = await store.add({ type: "text", text: "B" });
+  const c = await store.add({ type: "text", text: "C" });
+  await store.move(c, { after: a });
+  await store.remove(b);
+  await sleep(30);
+  eq(get().map((x) => x.text), ["A", "C"]);
+});
+</script></body></html>
