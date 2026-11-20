@@ -19,6 +19,8 @@ Claude 데스크톱 앱(Code 탭)에서는 + 버튼 → Plugins에서 같은 저
 - "이 논문 열어줘 https://arxiv.org/abs/1706.03762"
 - "다운로드 폴더에 있는 transformer 논문 읽어줘"
 - "~/Papers 폴더에서 논문 하나 골라서 열어줘"
+- "이 논문 같이 읽자" (한 절씩 설명, 노트 연동)
+- "방금 설명한 거 노트에 넣어줘"
 
 플러그인으로 설치했다면 `/paper <경로 또는 링크>`도 쓸 수 있다.
 
@@ -26,27 +28,30 @@ Claude 데스크톱 앱(Code 탭)에서는 + 버튼 → Plugins에서 같은 저
 
 | 기능 | 방법 |
 |---|---|
-| 3줄 요약·읽기 가이드·한계·선행 개념 | 열면 자동 (요약 탭) |
-| 쪽별 정리 | 지금 쪽을 문단 카드로 정리. 카드를 누르면 PDF의 그 문단으로 이동, "이 문단 번역"으로 원문과 번역을 나란히 비교 |
-| 선택 → 번역·설명·쉽게 풀기·질문 | 문장 드래그 |
-| 그림·표·수식 해석 | `C` 누르고 영역 드래그 |
-| 논문 전체 질문 | 아래 입력창 |
-| 비판적 리뷰, 랩미팅 개요, 예상 질문, 의사코드, 후속 연구 | 요약 탭의 버튼 |
-| 용어 사전 | 용어 탭 |
-| 하이라이트·답변 저장, Markdown 내보내기 | 노트 탭 |
+| **LaTeX 노트** | 오른쪽 노트 탭(기본). 블록 단위로 쓰고, `$x^2$`, `$$...$$` 수식이 바로 렌더링된다. 쓰는 중에도 미리보기가 뜬다. |
+| 논문 수식 → 노트 | `C`로 수식 영역 캡처 → "LaTeX로 노트에" |
+| 인용·그림 → 노트 | 문장 드래그 → "노트에 인용"(PDF에 형광펜이 남음), 캡처 → "그림을 노트에" |
+| Claude와 공부 | 채팅에 "이 논문 같이 읽자" → 한 절씩 설명. 페이지 위 "▸ 이 절 설명 듣기", 드래그 → "설명/쉽게 풀기/Claude에게 묻기"는 채팅으로 간다 |
+| Claude가 노트에 쓰기 | 채팅에서 "노트에 넣어줘" |
+| 쪽별 정리 | 지금 쪽을 문단 카드로 정리, 문단 단위 원문·번역 비교 |
+| 번역 | 문장 드래그 → "번역"(팝오버, 노트에 넣기 가능) |
+| 요약·용어 | 요약 탭(3줄 요약, 읽기 가이드), 용어 탭 |
+| 내보내기 | 노트 탭 "Markdown 받기"(수식은 `$`, `$$` 그대로) |
 | 확대/축소 | 상단 버튼, 핀치, Ctrl/⌘ + 휠 |
 
 참고
-- 요약·번역·질문은 리더 페이지를 연 사람의 Claude 사용량을 쓴다. 처음 열 때 허용을 한 번 묻는다.
-- 쪽 전체를 원문 그대로 통번역하는 요청은 저작권 때문에 Claude가 거절할 수 있어서, 쪽별 정리 + 문단 단위 번역으로 제공한다.
-- 논문별 리더 페이지는 비공개로 만들어진다. 공유하면 PDF도 함께 공유되니 저작권에 유의.
+- 노트, 목차, 설명 기록은 논문 페이지에 저장된다. 끌어다 놓은 PDF의 노트는 그 기기에만 저장된다.
+- 번역·요약은 페이지를 연 사람의 Claude 사용량을 쓴다. 처음 열 때 허용을 묻는다.
+- 쪽 전체를 원문 그대로 통번역하는 요청은 저작권 때문에 Claude가 거절할 수 있어서, 쪽별 정리 + 문단 번역으로 제공한다.
+- 논문 PDF 원본은 `~/Papers/paper-lens/<slug>/`에 보관된다.
 
 ## 구조
 ```
 .claude-plugin/marketplace.json           마켓플레이스 정보
 paper-lens/.claude-plugin/plugin.json      플러그인 정보
 paper-lens/commands/paper.md               /paper 명령
-paper-lens/skills/paper-lens/SKILL.md      논문 찾기 → 준비 → 리더로 올리기 절차
-paper-lens/skills/paper-lens/scripts/      PDF 가져오기 (arXiv/OpenReview 링크 변환)
-paper-lens/skills/paper-lens/viewer/       리더 페이지 (pdf.js + Claude)
+paper-lens/skills/paper-lens/SKILL.md      논문 열기, 공부 모드(한 절씩 설명), 노트 읽기·쓰기 절차
+paper-lens/skills/paper-lens/scripts/      PDF 가져오기, 올릴 묶음 준비
+paper-lens/skills/paper-lens/viewer/       리더 페이지(pdf.js, MathJax) + notes-core/store/ui, bridge 스크립트, tests/
+scripts/                                   개발용: dev_build.py, run_browser_tests.py, test_prepare_bundle.py
 ```
