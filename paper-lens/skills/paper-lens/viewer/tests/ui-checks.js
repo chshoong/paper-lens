@@ -433,4 +433,60 @@
     await waitFor(() => E.store.blocks().find((b) => b.id === id).text === "- [ ] 첫째\n- [x] 둘째", 3000, "ticked");
     eq(E.ui.editingId(), null, "not opened");
   });
+
+  // ---------- shared look ----------
+  test("headings and lists look the same while editing and after", async () => {
+    const E = await mountEditor("local");
+    E.div.style.width = "460px";
+    const id = await E.ui.insert({ type: "text", text: "## 제목\n\n- 항목" });
+    const st = await waitFor(() => E.blockEl(id).querySelector(".nb-text h2"), 3000, "static h2");
+    const sFont = getComputedStyle(st).fontSize, sWeight = getComputedStyle(st).fontWeight;
+    const sLi = E.blockEl(id).querySelector(".nb-text li");
+    const sIndent = sLi.getBoundingClientRect().left - E.blockEl(id).querySelector(".nb-body").getBoundingClientRect().left;
+    await E.edit(id);
+    const eh = E.blockEl(id).querySelector(".ql-editor h2");
+    eq(getComputedStyle(eh).fontSize, sFont, "h2 size");
+    eq(getComputedStyle(eh).fontWeight, sWeight, "h2 weight");
+    const eLi = E.blockEl(id).querySelector(".ql-editor li");
+    const eIndent = eLi.getBoundingClientRect().left - E.blockEl(id).querySelector(".nb-body").getBoundingClientRect().left;
+    ok(Math.abs(eIndent - sIndent) <= 2, "list indent static " + sIndent + " vs editor " + eIndent);
+  });
+
+  test("highlight and text colors follow the dark theme tokens", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: '<mark data-c="yellow">형광</mark> <span data-c="red">빨강</span>' });
+    const mk = await waitFor(() => E.blockEl(id).querySelector('.nb-text mark[data-c="yellow"]'), 3000, "mark");
+    const sp = E.blockEl(id).querySelector('.nb-text span[data-c="red"]');
+    const probe = document.createElement("span"); document.body.append(probe);
+    const tokenColor = (v, prop) => { probe.style[prop] = "var(" + v + ")"; return getComputedStyle(probe)[prop]; };
+    const light = getComputedStyle(mk).backgroundColor;
+    eq(light, tokenColor("--h-yellow", "backgroundColor"), "light highlight uses token");
+    eq(getComputedStyle(sp).color, tokenColor("--c-red", "color"), "light text color uses token");
+    document.documentElement.dataset.theme = "dark";
+    const dark = getComputedStyle(mk).backgroundColor;
+    eq(dark, tokenColor("--h-yellow", "backgroundColor"), "dark highlight uses token");
+    ok(dark !== light, "dark value differs");
+    delete document.documentElement.dataset.theme;
+    probe.remove();
+  });
+
+  test("inline math takes only its own width (no stray space)", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "값 $\\sqrt{d_k}$ 끝" });
+    const c = await waitFor(() => E.blockEl(id).querySelector(".nb-text mjx-container svg") && E.blockEl(id).querySelector(".nb-text mjx-container"), 15000, "math");
+    const cw = c.getBoundingClientRect().width, sw = c.querySelector("svg").getBoundingClientRect().width;
+    ok(cw <= sw + 3, "container " + Math.round(cw) + "px vs svg " + Math.round(sw) + "px");
+  });
+
+  test("math glyphs are really drawn (every <use> points at a glyph)", async () => {
+    const E = await mountEditor("local");
+    const id = await E.ui.insert({ type: "text", text: "쿼리 $Q$ 와 $\\sqrt{d_k}$" });
+    const svg = await waitFor(() => E.blockEl(id).querySelector(".nb-text mjx-container svg"), 15000, "svg");
+    const uses = [...svg.querySelectorAll("use")];
+    ok(uses.length > 0, "has glyph uses");
+    for (const u of uses) {
+      const ref = (u.getAttribute("href") || u.getAttribute("xlink:href") || "").replace(/^#/, "");
+      ok(ref && document.getElementById(ref), "glyph " + ref + " is defined");
+    }
+  });
 })();

@@ -4,7 +4,16 @@
   "use strict";
 
   // ---------- math ----------
-  const ready = () => (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) || Promise.reject(new Error("MathJax not loaded"));
+  // Converting one formula at a time skips MathJax's document pass, which is what adds its stylesheet
+  // (that stylesheet hides the screen-reader MathML; without it each formula gets stray width).
+  let styled = false;
+  const ready = () => {
+    const p = window.MathJax && window.MathJax.startup && window.MathJax.startup.promise;
+    if (!p) return Promise.reject(new Error("MathJax not loaded"));
+    return p.then(() => {
+      if (!styled && window.MathJax.svgStylesheet) { styled = true; document.head.appendChild(window.MathJax.svgStylesheet()); }
+    });
+  };
   const PLMath = {
     async render(latex, display) {
       try {
